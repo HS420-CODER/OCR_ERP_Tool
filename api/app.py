@@ -101,14 +101,16 @@ def _init_read_tool(app: Flask) -> None:
 def _register_blueprints(app: Flask) -> None:
     """Register all API blueprints."""
     from .routes.ocr_routes import ocr_bp
+    from .routes.vision_routes import vision_bp
     from .routes.engines_routes import engines_bp
     from .routes.config_routes import config_bp
 
     app.register_blueprint(ocr_bp)
+    app.register_blueprint(vision_bp)
     app.register_blueprint(engines_bp)
     app.register_blueprint(config_bp)
 
-    logger.info("Registered API blueprints: ocr, engines, config")
+    logger.info("Registered API blueprints: ocr, vision, engines, config")
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -210,15 +212,20 @@ def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = True):
     print("=" * 60)
     print()
     print("Available Endpoints:")
-    print("  GET  /api/health          - Health check")
-    print("  GET  /api/config          - Get configuration")
-    print("  PUT  /api/config          - Update configuration")
-    print("  GET  /api/engines         - List OCR engines")
-    print("  GET  /api/engines/<name>  - Get engine details")
-    print("  GET  /api/languages       - List supported languages")
-    print("  POST /api/ocr             - Process file with OCR")
-    print("  POST /api/ocr/text        - Extract text only")
-    print("  POST /api/ocr/structured  - Get structured output")
+    print("  GET  /api/health            - Health check")
+    print("  GET  /api/config            - Get configuration")
+    print("  PUT  /api/config            - Update configuration")
+    print("  GET  /api/engines           - List OCR engines")
+    print("  GET  /api/engines/<name>    - Get engine details")
+    print("  GET  /api/languages         - List supported languages")
+    print("  POST /api/ocr               - Process file with OCR")
+    print("  POST /api/ocr/text          - Extract text only")
+    print("  POST /api/ocr/structured    - Get structured output")
+    print("  POST /api/ocr/batch         - Batch process multiple files")
+    print("  POST /api/vision/analyze    - Vision analysis (Ollama)")
+    print("  POST /api/vision/prompt     - Custom prompt analysis")
+    print("  GET  /api/vision/models     - List vision models")
+    print("  GET  /api/vision/status     - Vision server status")
     print()
     print(f"Starting server on http://{host}:{port}")
     print("=" * 60)

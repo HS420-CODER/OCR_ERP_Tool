@@ -5,6 +5,8 @@ Endpoints:
 - POST /api/ocr - Process file with OCR (full result)
 - POST /api/ocr/text - Extract text only
 - POST /api/ocr/structured - Get structured bilingual output
+- POST /api/ocr/batch - Process multiple files in one request
+- GET /api/languages - Get supported languages
 """
 
 import os
@@ -300,6 +302,145 @@ def process_ocr_structured():
     except Exception as e:
         cleanup_file(filepath)
         logger.exception("Structured OCR error")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@ocr_bp.route('/ocr/batch', methods=['POST'])
+def process_ocr_batch():
+    """
+    Process multiple files with OCR in a single request.
+
+    Request (multipart/form-data):
+        - files (required): Multiple image or PDF files
+        - lang (optional): Language code ("en" or "ar", default: "en")
+        - engine (optional): Engine name (default: "auto")
+        - structured (optional): Enable structured output ("true"/"false", default: "false")
+
+    Response:
+        {
+            "success": true,
+            "total_files": 3,
+            "processed": 3,
+            "failed": 0,
+            "results": [
+                {
+                    "filename": "doc1.png",
+                    "success": true,
+                    "text": "...",
+                    "engine_used": "paddle",
+                    "processing_time_ms": 1234.56
+                },
+                ...
+            ],
+            "total_processing_time_ms": 5678.90
+        }
+    """
+    import time
+    start_time = time.perf_counter()
+
+    filepaths = []
+    results = []
+
+    try:
+        # Check for files
+        if 'files' not in request.files and 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No files provided. Use "files" field for multiple files.'
+            }), 400
+
+        # Get files - support both 'files' (multiple) and 'file' (single/multiple)
+        files = request.files.getlist('files') or request.files.getlist('file')
+
+        if not files or len(files) == 0:
+            return jsonify({
+                'success': False,
+                'error': 'No files provided'
+            }), 400
+
+        # Get parameters
+        lang = request.form.get('lang', 'en')
+        if lang not in ['en', 'ar']:
+            lang = 'en'
+
+        engine = request.form.get('engine', 'auto')
+        structured = request.form.get('structured', 'false').lower() == 'true'
+
+        read_tool = current_app.config['READ_TOOL']
+
+        processed_count = 0
+        failed_count = 0
+
+        for file in files:
+            file_result = {
+                'filename': file.filename,
+                'success': False,
+                'text': None,
+                'error': None,
+                'engine_used': None,
+                'processing_time_ms': 0
+            }
+
+            try:
+                filepath, filename, error = save_uploaded_file(file)
+
+                if error:
+                    file_result['error'] = error
+                    failed_count += 1
+                    results.append(file_result)
+                    continue
+
+                filepaths.append(filepath)
+
+                result = read_tool.read(
+                    file_path=filepath,
+                    lang=lang,
+                    engine=engine,
+                    structured_output=structured
+                )
+
+                if result.success:
+                    file_result['success'] = True
+                    file_result['text'] = result.full_text
+                    file_result['engine_used'] = result.engine_used
+                    file_result['processing_time_ms'] = result.processing_time_ms
+                    if structured and result.structured_output:
+                        file_result['structured_output'] = result.structured_output
+                    processed_count += 1
+                else:
+                    file_result['error'] = result.error or 'OCR processing failed'
+                    failed_count += 1
+
+            except Exception as e:
+                file_result['error'] = str(e)
+                failed_count += 1
+                logger.exception(f"Error processing file {file.filename}")
+
+            results.append(file_result)
+
+        # Cleanup all files
+        for filepath in filepaths:
+            cleanup_file(filepath)
+
+        total_time = (time.perf_counter() - start_time) * 1000
+
+        return jsonify({
+            'success': True,
+            'total_files': len(files),
+            'processed': processed_count,
+            'failed': failed_count,
+            'results': results,
+            'total_processing_time_ms': round(total_time, 2)
+        })
+
+    except Exception as e:
+        # Cleanup on error
+        for filepath in filepaths:
+            cleanup_file(filepath)
+        logger.exception("Batch OCR processing error")
         return jsonify({
             'success': False,
             'error': str(e)
