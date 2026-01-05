@@ -1,239 +1,189 @@
-# OCR Tool for ERP
+# Hybrid Read Tool for OCR
 
-A powerful OCR (Optical Character Recognition) tool built with PaddleOCR for extracting text from images and PDFs. Designed for ERP applications with support for English and Arabic languages.
+A powerful OCR (Optical Character Recognition) tool built with PaddleOCR and Tesseract for extracting text from images and PDFs. Features Claude Code CLI-like functionality with structured bilingual output for Arabic documents.
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![React](https://img.shields.io/badge/React-18+-61DAFB.svg)
-![PaddleOCR](https://img.shields.io/badge/PaddleOCR-3.3+-green.svg)
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![PaddleOCR](https://img.shields.io/badge/PaddleOCR-PP--OCRv5-green.svg)
+![Tesseract](https://img.shields.io/badge/Tesseract-5.3+-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ## Features
 
-- **Image OCR**: Extract text from PNG, JPG, JPEG, GIF, BMP, TIFF images
-- **PDF OCR**: Extract text from PDF documents (multi-page support)
-- **Multi-language**: Support for English and Arabic
-- **High Accuracy**: 98-99% accuracy using PaddleOCR v5 models
-- **Offline Mode**: Works offline after initial model download
-- **REST API**: Flask-based API for integration with other systems
-- **Modern UI**: React.js frontend with drag & drop file upload
-- **Export Options**: Copy text to clipboard or download as JSON
+- **Multi-Engine OCR**: PaddleOCR (primary) with Tesseract fallback
+- **Bilingual Support**: English and Arabic with RTL text handling
+- **Structured Output**: Claude Code-like markdown for Arabic invoices
+- **File Type Support**: Images (PNG, JPG, WEBP, etc.), PDFs, Jupyter notebooks
+- **REST API**: Flask-based API with blueprint architecture
+- **Offline Mode**: Works completely offline after model download
+- **High Accuracy**: 95%+ accuracy target for Arabic documents
 
-## Screenshots
+## Quick Start
 
-### Upload Interface
-- Drag & drop or browse files
-- Select language (English/Arabic)
-- Preview images before processing
-
-### Results View
-- Text View: Clean extracted text
-- Detailed View: Text blocks with confidence scores
-- Export: Copy or download results
-
-## Installation
-
-### Prerequisites
-
-- Python 3.8 or higher
-- Node.js 16 or higher
-- npm 8 or higher
-
-### 1. Clone the Repository
+### Installation
 
 ```bash
-git clone https://github.com/HS420-CODER/OCR_ERP_Tool.git
-cd OCR_ERP_Tool
-```
+# Clone and setup
+git clone <repository-url>
+cd OCR_2
 
-### 2. Setup Python Environment
-
-```bash
 # Create virtual environment
 python -m venv venv
+./venv/Scripts/activate  # Windows
+# source venv/bin/activate  # Linux/Mac
 
-# Activate virtual environment
-# Windows:
-.\venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
-
-# Install Python dependencies
-pip install paddlepaddle paddleocr PyMuPDF opencv-python Pillow flask flask-cors reportlab
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### 3. Setup React Frontend
+### Run the API Server
 
 ```bash
-cd frontend
-npm install
-cd ..
+python -m api.app
 ```
 
-### 4. Download OCR Models (First Run)
+Server starts at http://localhost:5000
 
-The models will download automatically on first use, or you can pre-download them:
+### Python Usage
 
-```bash
-python download_models.py
+```python
+from src.read_tool import HybridReadTool
+
+# Initialize
+reader = HybridReadTool()
+
+# Read an image with OCR
+result = reader.read("/path/to/invoice.png", lang="ar")
+print(result.full_text)
+
+# Get structured bilingual output
+print(result.structured_output)
+
+# Read a PDF
+result = reader.read("/path/to/document.pdf", lang="en")
+for page in result.pages:
+    print(f"Page {page.page_number}: {page.full_text}")
 ```
-
-Select option 2 to download common languages (English, Arabic, etc.)
-
-## Usage
-
-### Quick Start (Windows)
-
-Double-click `start.bat` or run:
-
-```bash
-start.bat
-```
-
-This will start both the API server and React frontend.
-
-### Manual Start
-
-**Terminal 1 - API Server:**
-```bash
-cd OCR_ERP_Tool
-.\venv\Scripts\activate
-python api.py
-```
-
-**Terminal 2 - React Frontend:**
-```bash
-cd OCR_ERP_Tool/frontend
-npm run dev
-```
-
-### Access the Application
-
-- **Frontend**: http://localhost:5173
-- **API**: http://localhost:5000
 
 ## API Endpoints
 
-### Health Check
-```
-GET /api/health
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check and status |
+| GET | `/api/config` | Get configuration |
+| PUT | `/api/config` | Update configuration |
+| GET | `/api/engines` | List OCR engines |
+| GET | `/api/engines/<name>` | Get engine details |
+| GET | `/api/languages` | List supported languages |
+| POST | `/api/ocr` | Full OCR processing |
+| POST | `/api/ocr/text` | Text-only extraction |
+| POST | `/api/ocr/structured` | Bilingual structured output |
 
-### OCR Processing (Full Result)
-```
-POST /api/ocr
-Content-Type: multipart/form-data
+### Example: OCR Processing
 
-Parameters:
-- file: Image or PDF file
-- lang: Language code ('en' or 'ar')
+```bash
+curl -X POST http://localhost:5000/api/ocr \
+  -F "file=@invoice.png" \
+  -F "lang=ar" \
+  -F "structured=true"
+```
 
 Response:
+```json
 {
   "success": true,
   "data": {
-    "file": "document.pdf",
-    "type": "pdf",
-    "total_pages": 2,
-    "processed_pages": 2,
-    "pages": [
-      {
-        "page_number": 1,
-        "text_blocks": [...],
-        "full_text": "Extracted text..."
-      }
-    ]
+    "file_type": "image",
+    "engine_used": "paddle",
+    "language": "ar",
+    "full_text": "فاتورة ضريبية...",
+    "structured_output": "# Tax Invoice (فاتورة ضريبية)\n..."
   }
 }
-```
-
-### OCR Processing (Text Only)
-```
-POST /api/ocr/text
-Content-Type: multipart/form-data
-
-Parameters:
-- file: Image or PDF file
-- lang: Language code ('en' or 'ar')
-
-Response:
-{
-  "success": true,
-  "text": "Extracted text content..."
-}
-```
-
-## Python Library Usage
-
-You can also use the OCR tool directly in Python:
-
-```python
-from ocr_tool import ERPOCRTool
-
-# Initialize OCR engine
-ocr = ERPOCRTool(lang='en')  # Use 'ar' for Arabic
-
-# Process an image
-result = ocr.process_image('invoice.png')
-print(result['pages'][0]['full_text'])
-
-# Process a PDF
-result = ocr.process_pdf('document.pdf')
-for page in result['pages']:
-    print(f"Page {page['page_number']}:")
-    print(page['full_text'])
-
-# Get text only (convenience method)
-text = ocr.get_text_only('document.pdf')
-print(text)
-
-# Save results to JSON
-ocr.save_results_json(result, 'output.json')
 ```
 
 ## Project Structure
 
 ```
-OCR_ERP_Tool/
-├── api.py                 # Flask REST API server
-├── ocr_tool.py            # Core OCR processing logic
-├── download_models.py     # Model download utility
-├── start.bat              # Windows startup script
-├── requirements.txt       # Python dependencies
-├── frontend/              # React.js frontend
-│   ├── src/
-│   │   ├── App.jsx        # Main React component
-│   │   ├── App.css        # Styles
-│   │   └── main.jsx       # Entry point
-│   ├── package.json
-│   └── vite.config.js
-├── test_samples/          # Sample test files
-│   ├── sample_image.png
-│   └── sample_document.pdf
-└── tasks/
-    └── todo.md            # Project documentation
+OCR_2/
+├── src/                    # Core library
+│   ├── read_tool.py       # Main HybridReadTool class
+│   ├── config.py          # Configuration management
+│   ├── models.py          # Data models (ReadResult, etc.)
+│   ├── engine_manager.py  # OCR engine orchestration
+│   ├── engines/           # OCR engine implementations
+│   │   ├── paddle_engine.py   # PaddleOCR (primary)
+│   │   └── tesseract_engine.py # Tesseract (fallback)
+│   ├── formatters/        # Output formatting
+│   │   ├── field_dictionary.py    # Arabic-English translations
+│   │   ├── document_analyzer.py   # Document structure analysis
+│   │   └── output_formatter.py    # Structured markdown output
+│   └── utils/             # Utility functions
+│       └── file_utils.py
+├── api/                   # Flask REST API
+│   ├── app.py            # Application factory
+│   └── routes/           # API blueprints
+│       ├── ocr_routes.py
+│       ├── engines_routes.py
+│       └── config_routes.py
+├── tests/                 # Test suite
+│   ├── unit/             # Unit tests
+│   └── integration/      # API integration tests
+├── scripts/              # Utility scripts
+│   └── install_tesseract.py
+├── docs/                 # Documentation
+└── examples/             # Example files
 ```
 
 ## Supported Languages
 
-| Code | Language |
-|------|----------|
-| `en` | English |
-| `ar` | Arabic |
-| `ch` | Chinese (Simplified) |
-| `fr` | French |
-| `german` | German |
-| `japan` | Japanese |
-| `korean` | Korean |
-| `ru` | Russian |
+| Code | Language | Direction |
+|------|----------|-----------|
+| `en` | English | LTR |
+| `ar` | Arabic | RTL |
 
-To add more languages, run `download_models.py` and select the languages you need.
+## OCR Engines
 
-## Offline Usage
+### PaddleOCR (Primary)
+- High accuracy PP-OCRv5 models
+- GPU acceleration support
+- Table detection and structure analysis
+- Best for complex documents
 
-After the initial model download, the OCR tool works completely offline. Models are cached at:
+### Tesseract (Fallback)
+- Industry-standard OCR engine
+- Wide language support
+- Runs when PaddleOCR unavailable
 
-- **Windows**: `C:\Users\<username>\.paddlex\official_models\`
-- **Linux/Mac**: `~/.paddlex/official_models/`
+Install Tesseract:
+```bash
+python scripts/install_tesseract.py --install
+python scripts/install_tesseract.py --lang ar
+```
+
+## Structured Arabic Output
+
+For Arabic documents (invoices, receipts), the tool generates Claude Code-like bilingual markdown:
+
+```markdown
+# Tax Invoice (فاتورة ضريبية)
+
+## Invoice Header
+
+| Field | Value | الحقل |
+|-------|-------|-------|
+| Date | 2022-12-21 | التاريخ |
+| Invoice No. | 220130 | الرقم |
+
+## Customer Information (العميل)
+
+| Field | Value |
+|-------|-------|
+| Customer (العميل) | قرطاسية اصل |
+
+## Summary (ملخص)
+
+| الاجمالي (Total) | 2000.00 |
+```
 
 ## Configuration
 
@@ -241,53 +191,79 @@ After the initial model download, the OCR tool works completely offline. Models 
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DISABLE_MODEL_SOURCE_CHECK` | Skip online connectivity check | `True` |
+| `READ_TOOL_DEFAULT_ENGINE` | Default OCR engine | `paddle` |
+| `READ_TOOL_FALLBACK_ENABLED` | Enable engine fallback | `true` |
+| `PADDLE_OCR_LANG` | PaddleOCR language | `en` |
+| `PADDLE_OCR_USE_GPU` | Enable GPU acceleration | `false` |
+| `TESSERACT_CMD` | Path to Tesseract executable | auto-detect |
+| `MAX_FILE_SIZE_MB` | Maximum file size | `50` |
 
 ### API Configuration
 
-Edit `api.py` to change:
-- Port number (default: 5000)
-- Upload folder location
-- Allowed file extensions
+```python
+from api import create_app
+
+app = create_app({
+    'UPLOAD_FOLDER': '/custom/upload/path',
+    'MAX_CONTENT_LENGTH': 100 * 1024 * 1024  # 100MB
+})
+```
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=src --cov=api --cov-report=html
+
+# Run specific test file
+pytest tests/unit/test_formatters.py -v
+```
+
+## Development
+
+### Adding a New Engine
+
+1. Create `src/engines/new_engine.py` extending `BaseEngine`
+2. Implement required methods: `process_image()`, `process_pdf()`
+3. Register in `src/read_tool.py`:
+   ```python
+   self.engine_manager.register_engine_class("new", NewEngine)
+   ```
+
+### Adding Field Translations
+
+Edit `src/formatters/field_dictionary.py`:
+```python
+INVOICE_FIELDS["الحقل الجديد"] = "New Field"
+```
 
 ## Troubleshooting
 
-### Models not downloading
-- Check your internet connection
-- Try running `python download_models.py` manually
+### PaddleOCR not loading
+- Ensure PaddlePaddle is installed: `pip install paddlepaddle`
+- Check GPU drivers if using CUDA
 
-### OCR accuracy issues
-- Ensure good image quality (300 DPI recommended)
-- Check if the correct language is selected
-- For rotated text, the tool auto-detects orientation
+### Tesseract not found
+- Run: `python scripts/install_tesseract.py --check`
+- Install language packs: `--lang ar`
 
-### API connection refused
-- Make sure the Flask server is running on port 5000
-- Check if another application is using the port
-
-## Tech Stack
-
-- **Backend**: Python, Flask, PaddleOCR, PaddlePaddle
-- **Frontend**: React.js, Vite, Axios
-- **OCR Engine**: PaddleOCR v5 (PP-OCRv5)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### Arabic text reversed
+- The tool handles RTL automatically
+- Check document structure with `result.metadata['is_bilingual']`
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
-- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - Awesome multilingual OCR toolkit
-- [PaddlePaddle](https://www.paddlepaddle.org.cn/) - Deep learning platform
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) - Primary OCR engine
+- [Tesseract](https://github.com/tesseract-ocr/tesseract) - Fallback OCR engine
+- [Flask](https://flask.palletsprojects.com/) - Web framework
 
 ---
 
-Made with [Claude Code](https://claude.ai/code)
+Built with [Claude Code](https://claude.ai/code)
