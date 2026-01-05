@@ -435,21 +435,30 @@ class HybridReadTool:
         Returns:
             ReadResult with structured_output field populated
         """
-        # This will be implemented in Phase 1.5 with the formatters
-        # For now, just return the result as-is
         try:
-            from .formatters.output_formatter import StructuredOutputFormatter
-            from .formatters.document_analyzer import DocumentAnalyzer
+            from .formatters import DocumentAnalyzer, StructuredOutputFormatter
 
             analyzer = DocumentAnalyzer()
             formatter = StructuredOutputFormatter()
 
+            # Analyze document structure
             structure = analyzer.analyze(result)
+
+            # Generate structured markdown output
             result.structured_output = formatter.format(result, structure, "markdown")
 
-        except ImportError:
-            # Formatters not yet implemented
-            pass
+            # Add structure info to metadata
+            result.metadata["document_type"] = structure.document_type.value
+            result.metadata["is_bilingual"] = structure.is_bilingual
+            result.metadata["detected_language"] = structure.language
+
+            logger.info(
+                f"Generated structured output: type={structure.document_type.value}, "
+                f"bilingual={structure.is_bilingual}"
+            )
+
+        except ImportError as e:
+            logger.warning(f"Formatters not available: {e}")
         except Exception as e:
             logger.warning(f"Failed to generate structured output: {e}")
 
