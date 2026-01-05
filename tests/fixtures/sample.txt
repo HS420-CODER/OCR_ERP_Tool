@@ -1,0 +1,5 @@
+Line 1: Hello World
+Line 2: This is a test file
+Line 3: With multiple lines
+Line 4: For testing the Read Tool
+Line 5: End of file
