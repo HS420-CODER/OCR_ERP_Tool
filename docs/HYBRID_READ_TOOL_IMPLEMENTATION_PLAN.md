@@ -3316,13 +3316,13 @@ Before starting Stage 1, the following must be in place:
 
 #### 18.2.3 Definition of Done - Stage 1
 
-- [ ] All Phase 1 and Phase 1.5 tasks completed
-- [ ] Unit tests written and passing (>70% coverage for new code)
-- [ ] Code review completed (self-review for solo development)
-- [ ] Documentation updated (README, docstrings)
-- [ ] No critical bugs or regressions
-- [ ] Commit made with descriptive message
-- [ ] Quality Gate 1 passed
+- [x] All Phase 1 and Phase 1.5 tasks completed
+- [x] Unit tests written and passing (>70% coverage for new code)
+- [x] Code review completed (self-review for solo development)
+- [x] Documentation updated (README, docstrings)
+- [x] No critical bugs or regressions
+- [x] Commit made with descriptive message
+- [x] Quality Gate 1 passed
 
 #### 18.2.4 Quality Gate 1 Checklist
 
@@ -3356,12 +3356,12 @@ Before starting Stage 1, the following must be in place:
 
 #### 18.3.3 Definition of Done - Stage 2
 
-- [ ] TesseractEngine fully implemented
-- [ ] Fallback logic tested and working
-- [ ] Installation script created
-- [ ] Unit tests passing (>75% coverage)
-- [ ] Integration with EngineManager complete
-- [ ] Quality Gate 2 passed
+- [x] TesseractEngine fully implemented
+- [x] Fallback logic tested and working
+- [x] Installation script created
+- [x] Unit tests passing (>75% coverage)
+- [x] Integration with EngineManager complete
+- [x] Quality Gate 2 passed
 
 #### 18.3.4 Quality Gate 2 Checklist
 
@@ -3394,12 +3394,12 @@ Before starting Stage 1, the following must be in place:
 
 #### 18.4.3 Definition of Done - Stage 3
 
-- [ ] OllamaEngine fully implemented
-- [ ] HTTP communication with Ollama API working
-- [ ] Custom prompt support complete
-- [ ] Unit tests with mocked API passing
-- [ ] Integration tests (optional, if Ollama available)
-- [ ] Quality Gate 3 passed
+- [x] OllamaEngine fully implemented
+- [x] HTTP communication with Ollama API working
+- [x] Custom prompt support complete
+- [x] Unit tests with mocked API passing
+- [x] Integration tests (optional, if Ollama available)
+- [x] Quality Gate 3 passed
 
 #### 18.4.4 Quality Gate 3 Checklist
 
@@ -3432,11 +3432,11 @@ Before starting Stage 1, the following must be in place:
 
 #### 18.5.3 Definition of Done - Stage 4
 
-- [ ] All API endpoints implemented
-- [ ] Flask blueprints structure complete
-- [ ] API integration tests passing
-- [ ] Error responses standardized
-- [ ] Quality Gate 4 passed
+- [x] All API endpoints implemented
+- [x] Flask blueprints structure complete
+- [x] API integration tests passing
+- [x] Error responses standardized
+- [x] Quality Gate 4 passed
 
 #### 18.5.4 Quality Gate 4 Checklist
 
@@ -3469,13 +3469,13 @@ Before starting Stage 1, the following must be in place:
 
 #### 18.6.3 Definition of Done - Stage 5 (Release Criteria)
 
-- [ ] Test coverage >80%
-- [ ] All documentation complete and reviewed
-- [ ] Performance benchmarks meet targets
-- [ ] Security review completed
-- [ ] No critical or high-severity bugs
-- [ ] Release notes and changelog updated
-- [ ] Final Quality Gate passed
+- [x] Test coverage >80%
+- [x] All documentation complete and reviewed
+- [x] Performance benchmarks meet targets
+- [x] Security review completed
+- [x] No critical or high-severity bugs
+- [x] Release notes and changelog updated
+- [x] Final Quality Gate passed
 
 #### 18.6.4 Final Quality Gate Checklist
 
