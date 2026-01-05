@@ -8,6 +8,9 @@ Pillow>=9.0.0
 # Core OCR - Tesseract (fallback)
 pytesseract>=0.3.10
 
+# Vision - Ollama (context-aware analysis)
+httpx>=0.24.0
+
 # Web API
 flask>=2.0.0
 flask-cors>=3.0.0

@@ -17,6 +17,7 @@ from .base_engine import (
 )
 from .paddle_engine import PaddleEngine
 from .tesseract_engine import TesseractEngine
+from .ollama_engine import OllamaEngine
 
 __all__ = [
     "BaseEngine",
@@ -27,4 +28,5 @@ __all__ = [
     "LanguageNotSupportedError",
     "PaddleEngine",
     "TesseractEngine",
+    "OllamaEngine",
 ]

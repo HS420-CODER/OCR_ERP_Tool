@@ -93,12 +93,12 @@ class HybridReadTool:
         except ImportError:
             logger.warning("TesseractEngine not available")
 
-        # Ollama will be added in Phase 3
-        # try:
-        #     from .engines.ollama_engine import OllamaEngine
-        #     self.engine_manager.register_engine_class("ollama", OllamaEngine)
-        # except ImportError:
-        #     logger.warning("OllamaEngine not available")
+        # Ollama Vision engine (Phase 3/6)
+        try:
+            from .engines.ollama_engine import OllamaEngine
+            self.engine_manager.register_engine_class("ollama", OllamaEngine)
+        except ImportError:
+            logger.warning("OllamaEngine not available")
 
     def read(
         self,
