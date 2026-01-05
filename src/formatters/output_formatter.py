@@ -27,7 +27,19 @@ from .field_dictionary import (
     get_english,
     get_arabic,
     is_arabic_text,
+    get_english_fuzzy,
+    FUZZY_AVAILABLE,
 )
+
+# Import enhanced utilities
+try:
+    from ..utils.arabic_utils import normalize_arabic
+    from ..utils.fuzzy_match import fuzzy_contains, fuzzy_best_match
+    from ..utils.pattern_extractors import extract_to_flat_dict
+    ENHANCED_FORMATTING = True
+except ImportError:
+    ENHANCED_FORMATTING = False
+    normalize_arabic = lambda x: x
 
 logger = logging.getLogger(__name__)
 
@@ -407,12 +419,36 @@ class StructuredOutputFormatter:
     # EXTRACTION HELPERS
     # =========================================================================
 
+    def _fuzzy_key_match(self, kv: Dict[str, str], target_ar: str) -> Optional[str]:
+        """
+        Find a key in kv dict that fuzzy matches the target Arabic key.
+
+        Returns the value if found, None otherwise.
+        """
+        # Exact match first
+        if target_ar in kv:
+            return kv[target_ar]
+
+        # Fuzzy match
+        if ENHANCED_FORMATTING and FUZZY_AVAILABLE:
+            target_normalized = normalize_arabic(target_ar)
+            for key, value in kv.items():
+                key_normalized = normalize_arabic(key)
+                if fuzzy_contains(key_normalized, target_normalized, threshold=70):
+                    return value
+                # Also check if target is in key
+                if target_normalized in key_normalized or key_normalized in target_normalized:
+                    return value
+
+        return None
+
     def _extract_company_info(
         self,
         kv: Dict[str, str]
     ) -> List[tuple]:
         """
         Extract company information as (english, arabic) pairs.
+        Uses fuzzy matching to handle OCR errors.
         """
         pairs = []
 
@@ -423,17 +459,24 @@ class StructuredOutputFormatter:
             ("للحلول المالية والادارية", "For Financial and Administrative Solutions"),
             ("هاتف", "Phone"),
             ("الرقم الضريبي", "Tax Number"),
+            ("السجل التجاري", "Commercial Registration"),
         ]
 
         for ar, en in company_fields:
-            if ar in kv:
-                pairs.append((f"{en}: {kv[ar]}", f"{ar}: {kv[ar]}"))
-            elif ar in str(kv):
-                # Check if it appears as a value
-                for key, value in kv.items():
-                    if ar in key or ar in value:
+            value = self._fuzzy_key_match(kv, ar)
+            if value:
+                pairs.append((f"{en}: {value}", f"{ar}: {value}"))
+            else:
+                # Check if it appears as a value in any key
+                for key, val in kv.items():
+                    if ar in key or ar in val:
                         pairs.append((en, ar))
                         break
+                    # Fuzzy check in values
+                    if ENHANCED_FORMATTING and FUZZY_AVAILABLE:
+                        if fuzzy_contains(val, ar, threshold=70):
+                            pairs.append((en, ar))
+                            break
 
         return pairs
 
@@ -443,6 +486,7 @@ class StructuredOutputFormatter:
     ) -> List[tuple]:
         """
         Extract invoice header as (english_name, value, arabic_name) tuples.
+        Uses fuzzy matching to handle OCR errors.
         """
         pairs = []
 
@@ -457,12 +501,17 @@ class StructuredOutputFormatter:
             ("العملة", "Currency"),
             ("المندوب", "Representative"),
             ("الصفحة", "Page"),
+            ("الصرف", "Dispatch"),
         ]
 
+        seen_en = set()  # Avoid duplicate English labels
         for ar, en in header_fields:
-            if ar in kv:
-                value = kv[ar]
+            if en in seen_en:
+                continue
+            value = self._fuzzy_key_match(kv, ar)
+            if value:
                 pairs.append((en, value, ar))
+                seen_en.add(en)
 
         return pairs
 
@@ -472,6 +521,7 @@ class StructuredOutputFormatter:
     ) -> List[tuple]:
         """
         Extract customer info as (english_name, arabic_name, value) tuples.
+        Uses fuzzy matching to handle OCR errors.
         """
         pairs = []
 
@@ -483,11 +533,12 @@ class StructuredOutputFormatter:
             ("التلفون", "Phone"),
             ("السائق", "Driver"),
             ("الوجهة", "Destination"),
+            ("الشوفية", "Delivery"),
         ]
 
         for ar, en in customer_fields:
-            if ar in kv:
-                value = kv[ar]
+            value = self._fuzzy_key_match(kv, ar)
+            if value:
                 pairs.append((en, ar, value))
 
         return pairs
@@ -498,6 +549,7 @@ class StructuredOutputFormatter:
     ) -> List[tuple]:
         """
         Extract summary fields as (arabic_name, english_name, value) tuples.
+        Uses fuzzy matching to handle OCR errors.
         """
         pairs = []
 
@@ -510,11 +562,13 @@ class StructuredOutputFormatter:
             ("ضريبة القيمة المضافة", "VAT"),
             ("اجمالي ضريبة القيمة المضافة", "Total VAT"),
             ("الصافي شامل ض.ق", "Net including VAT"),
+            ("إجمالي الكمية", "Total Quantity"),
+            ("الاستحقاق", "Due"),
         ]
 
         for ar, en in summary_fields:
-            if ar in kv:
-                value = kv[ar]
+            value = self._fuzzy_key_match(kv, ar)
+            if value:
                 pairs.append((ar, en, value))
 
         return pairs

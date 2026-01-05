@@ -411,3 +411,294 @@ TABLE_HEADER_KEYWORDS = [
 SUMMARY_KEYWORDS = [
     "الاجمالي", "الاضافات", "الخصم", "الصافي", "ضريبة القيمة المضافة"
 ]
+
+
+# =============================================================================
+# FUZZY MATCHING SUPPORT
+# =============================================================================
+
+# Import fuzzy matching utilities (optional - falls back gracefully)
+try:
+    from ..utils.arabic_utils import normalize_arabic, is_arabic, similarity_ratio
+    from ..utils.fuzzy_match import (
+        fuzzy_best_match, fuzzy_field_match as _fuzzy_field_match,
+        fuzzy_contains, FuzzyMatch
+    )
+    FUZZY_AVAILABLE = True
+except ImportError:
+    FUZZY_AVAILABLE = False
+    normalize_arabic = lambda x: x
+    is_arabic = lambda x: any('\u0600' <= c <= '\u06FF' for c in x)
+
+
+def get_english_fuzzy(arabic_text: str,
+                      threshold: int = 70,
+                      normalize: bool = True) -> Tuple[str, float]:
+    """
+    Get English translation for Arabic text using fuzzy matching.
+
+    This function handles OCR errors by using fuzzy string matching
+    to find the best matching field even when characters are corrupted.
+
+    Args:
+        arabic_text: Arabic text to translate (may contain OCR errors)
+        threshold: Minimum similarity score (0-100) for a match
+        normalize: Whether to normalize Arabic text before matching
+
+    Returns:
+        Tuple of (english_translation, confidence_score)
+        If no match found, returns (original_text, 0.0)
+
+    Example:
+        >>> get_english_fuzzy("فانورة")  # OCR error for فاتورة
+        ('Invoice', 85.7)
+    """
+    if not arabic_text:
+        return arabic_text, 0.0
+
+    # Try exact match first (fastest)
+    if arabic_text in INVOICE_FIELDS:
+        return INVOICE_FIELDS[arabic_text], 100.0
+
+    if arabic_text in SECTION_HEADERS:
+        return SECTION_HEADERS[arabic_text], 100.0
+
+    # Normalize and try again
+    if normalize:
+        normalized = normalize_arabic(arabic_text)
+        if normalized in INVOICE_FIELDS:
+            return INVOICE_FIELDS[normalized], 98.0
+        if normalized in SECTION_HEADERS:
+            return SECTION_HEADERS[normalized], 98.0
+
+    # Use fuzzy matching if available
+    if FUZZY_AVAILABLE:
+        # Combine all fields for matching
+        all_fields = {**INVOICE_FIELDS, **SECTION_HEADERS}
+        keys = list(all_fields.keys())
+
+        match = fuzzy_best_match(arabic_text, keys, threshold=threshold, normalize=normalize)
+        if match:
+            return all_fields[match.match], match.score
+
+    # Fallback: partial substring match (original behavior)
+    if normalize:
+        arabic_text = normalize_arabic(arabic_text)
+
+    for ar, en in INVOICE_FIELDS.items():
+        ar_normalized = normalize_arabic(ar) if normalize else ar
+        if ar_normalized in arabic_text or arabic_text in ar_normalized:
+            return en, 75.0
+
+    return arabic_text, 0.0
+
+
+def fuzzy_field_lookup(text: str,
+                       threshold: int = 70) -> Optional[Tuple[str, str, float]]:
+    """
+    Look up a field using fuzzy matching.
+
+    Args:
+        text: Text to look up (Arabic)
+        threshold: Minimum match score
+
+    Returns:
+        Tuple of (arabic_field, english_translation, score) or None
+
+    Example:
+        >>> fuzzy_field_lookup("العملي")  # OCR error for العميل
+        ('العميل', 'Customer', 80.5)
+    """
+    if not text or not FUZZY_AVAILABLE:
+        return None
+
+    all_fields = {**INVOICE_FIELDS, **SECTION_HEADERS}
+    arabic_key, english_value, score = _fuzzy_field_match(
+        text, all_fields, threshold=threshold
+    )
+
+    if arabic_key:
+        return arabic_key, english_value, score
+
+    return None
+
+
+def extract_field_value_fuzzy(text: str,
+                              field_ar: str,
+                              threshold: int = 70) -> Optional[Tuple[str, float]]:
+    """
+    Extract value for a field using fuzzy matching.
+
+    Handles OCR errors in both the field name and searches for the
+    best match in the text.
+
+    Args:
+        text: Full text to search in
+        field_ar: Arabic field name to look for (may contain OCR errors)
+        threshold: Minimum fuzzy match score
+
+    Returns:
+        Tuple of (extracted_value, confidence_score) or None
+
+    Example:
+        >>> extract_field_value_fuzzy("العملي: قرطاسية اصل", "العميل")
+        ('قرطاسية اصل', 85.0)
+    """
+    import re
+
+    if not text or not field_ar:
+        return None
+
+    # Normalize for comparison
+    normalized_text = normalize_arabic(text)
+    normalized_field = normalize_arabic(field_ar)
+
+    # Split text into lines for line-by-line matching
+    lines = text.split('\n')
+
+    for line in lines:
+        line_normalized = normalize_arabic(line)
+
+        # Check if field is (fuzzy) present in line
+        if FUZZY_AVAILABLE and fuzzy_contains(line_normalized, normalized_field, threshold):
+            # Extract value after the field name
+            # Try colon separator first
+            for delim in [':', '؛', '،', '-']:
+                if delim in line:
+                    parts = line.split(delim, 1)
+                    if len(parts) == 2:
+                        potential_field = normalize_arabic(parts[0].strip())
+                        # Verify this is actually our field
+                        if FUZZY_AVAILABLE:
+                            match = fuzzy_best_match(
+                                potential_field,
+                                [normalized_field],
+                                threshold=threshold
+                            )
+                            if match:
+                                return parts[1].strip(), match.score
+
+            # No delimiter - try to extract value by position
+            words = line.split()
+            for i, word in enumerate(words):
+                word_normalized = normalize_arabic(word)
+                if FUZZY_AVAILABLE:
+                    match = fuzzy_best_match(
+                        word_normalized,
+                        [normalized_field],
+                        threshold=threshold
+                    )
+                    if match and i + 1 < len(words):
+                        # Value is everything after the matched field
+                        value = ' '.join(words[i + 1:])
+                        return value, match.score
+
+    # Fallback to exact match
+    result = extract_field_value(text, field_ar)
+    if result:
+        return result, 100.0
+
+    return None
+
+
+def get_all_fuzzy_matches(text: str,
+                          threshold: int = 65,
+                          limit: int = 20) -> List[Dict]:
+    """
+    Find all field matches in text using fuzzy matching.
+
+    Useful for extracting multiple key-value pairs from OCR output.
+
+    Args:
+        text: Text to search (typically full OCR output)
+        threshold: Minimum match score
+        limit: Maximum number of matches to return
+
+    Returns:
+        List of dicts with keys: arabic_field, english_field, value, score
+
+    Example:
+        >>> get_all_fuzzy_matches("التاريخ 2024-12-21\\nالعملي قرطاسية")
+        [
+            {'arabic': 'التاريخ', 'english': 'Date', 'value': '2024-12-21', 'score': 100},
+            {'arabic': 'العميل', 'english': 'Customer', 'value': 'قرطاسية', 'score': 85}
+        ]
+    """
+    results = []
+    seen_fields = set()
+
+    all_fields = {**INVOICE_FIELDS, **SECTION_HEADERS}
+
+    lines = text.split('\n')
+
+    for line in lines:
+        if not line.strip():
+            continue
+
+        # Try to extract key-value from this line
+        for delim in [':', '؛', '،', ' ']:
+            if delim in line:
+                parts = line.split(delim, 1)
+                if len(parts) == 2:
+                    potential_key = parts[0].strip()
+                    value = parts[1].strip()
+
+                    if not potential_key or len(potential_key) > 50:
+                        continue
+
+                    # Fuzzy match against known fields
+                    english, score = get_english_fuzzy(potential_key, threshold=threshold)
+
+                    if score >= threshold and english not in seen_fields:
+                        seen_fields.add(english)
+                        results.append({
+                            'arabic': potential_key,
+                            'english': english,
+                            'value': value,
+                            'score': score
+                        })
+
+                        if len(results) >= limit:
+                            return results
+                    break
+
+    return results
+
+
+def categorize_field(arabic_text: str, threshold: int = 70) -> Optional[str]:
+    """
+    Categorize an Arabic field into its section using fuzzy matching.
+
+    Args:
+        arabic_text: Arabic field name
+
+    Returns:
+        Category name: 'document_type', 'company', 'customer',
+        'invoice_header', 'table_header', 'summary', or None
+    """
+    categories = {
+        'document_type': DOCUMENT_TYPE_KEYWORDS,
+        'company': COMPANY_KEYWORDS,
+        'customer': CUSTOMER_KEYWORDS,
+        'invoice_header': INVOICE_HEADER_KEYWORDS,
+        'table_header': TABLE_HEADER_KEYWORDS,
+        'summary': SUMMARY_KEYWORDS,
+    }
+
+    if not FUZZY_AVAILABLE:
+        # Exact match fallback
+        for category, keywords in categories.items():
+            if any(kw in arabic_text for kw in keywords):
+                return category
+        return None
+
+    best_category = None
+    best_score = threshold
+
+    for category, keywords in categories.items():
+        match = fuzzy_best_match(arabic_text, keywords, threshold=threshold)
+        if match and match.score > best_score:
+            best_score = match.score
+            best_category = category
+
+    return best_category

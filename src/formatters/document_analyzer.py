@@ -28,7 +28,21 @@ from .field_dictionary import (
     is_arabic_text,
     is_bilingual_text,
     get_english,
+    get_english_fuzzy,
+    get_all_fuzzy_matches,
+    categorize_field,
+    FUZZY_AVAILABLE,
 )
+
+# Import utilities for enhanced analysis
+try:
+    from ..utils.arabic_utils import normalize_arabic, is_arabic
+    from ..utils.fuzzy_match import fuzzy_contains, fuzzy_best_match
+    from ..utils.pattern_extractors import extract_all_patterns, extract_to_flat_dict
+    ENHANCED_ANALYSIS = True
+except ImportError:
+    ENHANCED_ANALYSIS = False
+    normalize_arabic = lambda x: x
 
 logger = logging.getLogger(__name__)
 
@@ -260,30 +274,86 @@ class DocumentAnalyzer:
         Detect document type from text content.
 
         Checks for keywords that indicate specific document types.
+        Uses fuzzy matching to handle OCR errors.
         """
         text_lower = text.lower()
+        text_normalized = normalize_arabic(text) if ENHANCED_ANALYSIS else text
 
         # Check for tax invoice (most specific first)
+        # Exact match
         if "فاتورة ضريبية" in text or "tax invoice" in text_lower:
             return DocumentType.TAX_INVOICE
+
+        # Fuzzy match for tax invoice (handles OCR errors like "فانورة ضرسة")
+        if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+            if (fuzzy_contains(text_normalized, "فاتورة ضريبية", threshold=70) or
+                fuzzy_contains(text_normalized, "فاتورة", threshold=75)):
+                # Check if it looks like an invoice with tax info
+                tax_indicators = ["ضريب", "tax", "vat", "15%", "الرقم الضريبي"]
+                if any(ind in text_lower or ind in text_normalized for ind in tax_indicators):
+                    return DocumentType.TAX_INVOICE
 
         # Check for quotation
         quote_ar = sum(1 for kw in self.QUOTATION_KEYWORDS_AR if kw in text)
         quote_en = sum(1 for kw in self.QUOTATION_KEYWORDS_EN if kw in text_lower)
+
+        # Fuzzy quotation check
+        if ENHANCED_ANALYSIS and FUZZY_AVAILABLE and quote_ar == 0:
+            for kw in self.QUOTATION_KEYWORDS_AR:
+                if fuzzy_contains(text_normalized, kw, threshold=75):
+                    quote_ar += 1
+                    break
+
         if quote_ar >= 1 or quote_en >= 1:
             return DocumentType.QUOTATION
 
         # Check for receipt
         receipt_ar = sum(1 for kw in self.RECEIPT_KEYWORDS_AR if kw in text)
         receipt_en = sum(1 for kw in self.RECEIPT_KEYWORDS_EN if kw in text_lower)
+
+        # Fuzzy receipt check
+        if ENHANCED_ANALYSIS and FUZZY_AVAILABLE and receipt_ar == 0:
+            for kw in self.RECEIPT_KEYWORDS_AR:
+                if fuzzy_contains(text_normalized, kw, threshold=75):
+                    receipt_ar += 1
+                    break
+
         if receipt_ar >= 1 or receipt_en >= 1:
             return DocumentType.RECEIPT
 
-        # Check for invoice
+        # Check for invoice (with lower threshold due to OCR errors)
         invoice_ar = sum(1 for kw in self.INVOICE_KEYWORDS_AR if kw in text)
         invoice_en = sum(1 for kw in self.INVOICE_KEYWORDS_EN if kw in text_lower)
-        if invoice_ar >= 2 or invoice_en >= 2:
+
+        # Fuzzy invoice check - more lenient
+        if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+            for kw in self.INVOICE_KEYWORDS_AR:
+                if fuzzy_contains(text_normalized, kw, threshold=70):
+                    invoice_ar += 0.5  # Partial credit for fuzzy match
+
+        # Lower threshold: 1 match is enough with fuzzy matching
+        if invoice_ar >= 1 or invoice_en >= 2:
             return DocumentType.INVOICE
+
+        # Additional check: use pattern extractors to detect invoice-like content
+        if ENHANCED_ANALYSIS:
+            patterns = extract_to_flat_dict(text)
+            # If we have structured data typical of invoices, it's likely an invoice
+            invoice_signals = 0
+            if 'total_amount' in patterns:
+                invoice_signals += 1
+            if 'tax_number' in patterns:
+                invoice_signals += 1
+            if 'date' in patterns:
+                invoice_signals += 1
+            if 'invoice_number' in patterns:
+                invoice_signals += 1
+
+            if invoice_signals >= 2:
+                # Has tax number = likely tax invoice
+                if 'tax_number' in patterns:
+                    return DocumentType.TAX_INVOICE
+                return DocumentType.INVOICE
 
         return DocumentType.GENERIC
 
@@ -327,37 +397,89 @@ class DocumentAnalyzer:
         - "الحقل: القيمة"
         - "Field: Value"
         - "الحقل    القيمة" (tab/space separated)
+
+        Uses fuzzy matching to handle OCR errors and extracts full values.
         """
         pairs = {}
         lines = text.split('\n')
 
+        # First, use pattern extractors for structured fields
+        if ENHANCED_ANALYSIS:
+            patterns = extract_to_flat_dict(text)
+            if 'date' in patterns:
+                pairs['التاريخ'] = patterns['date']
+            if 'total_amount' in patterns:
+                pairs['الاجمالي'] = patterns['total_amount']
+            if 'tax_number' in patterns:
+                pairs['الرقم الضريبي'] = patterns['tax_number']
+            if 'phone' in patterns:
+                pairs['هاتف'] = patterns['phone']
+            if 'invoice_number' in patterns:
+                pairs['رقم الفاتورة'] = patterns['invoice_number']
+            if 'time' in patterns:
+                pairs['الوقت'] = patterns['time']
+
+        # Use fuzzy matching for all fields
+        if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+            fuzzy_matches = get_all_fuzzy_matches(text, threshold=65, limit=30)
+            for match in fuzzy_matches:
+                arabic_key = match.get('arabic', '')
+                english_key = match.get('english', '')
+                value = match.get('value', '')
+
+                if english_key and value and english_key not in pairs:
+                    # Store with Arabic key for consistency
+                    pairs[arabic_key] = value
+
+        # Traditional extraction as fallback
         for line in lines:
             line = line.strip()
             if not line:
                 continue
 
-            # Try colon separator
-            if ':' in line:
-                parts = line.split(':', 1)
-                if len(parts) == 2:
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    if key and value:
-                        pairs[key] = value
-                        continue
+            # Try colon separator (: or Arabic semicolon ؛)
+            for delim in [':', '؛']:
+                if delim in line:
+                    parts = line.split(delim, 1)
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        value = parts[1].strip()
+                        if key and value and key not in pairs:
+                            # Try to get the canonical Arabic key via fuzzy match
+                            if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+                                english, score = get_english_fuzzy(key, threshold=70)
+                                if score >= 70:
+                                    pairs[key] = value
+                            else:
+                                pairs[key] = value
+                    break
 
-            # Try common field patterns for Arabic
-            for field_ar in INVOICE_FIELDS.keys():
-                if field_ar in line:
-                    # Extract value after field name
-                    idx = line.find(field_ar)
-                    after = line[idx + len(field_ar):].strip()
-
-                    # Remove common separators
-                    after = after.lstrip(':').lstrip('-').strip()
-
-                    if after:
-                        pairs[field_ar] = after.split()[0] if after.split() else after
+            # Try common field patterns for Arabic with fuzzy matching
+            if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+                for field_ar in list(INVOICE_FIELDS.keys())[:50]:  # Top 50 fields
+                    if fuzzy_contains(line, field_ar, threshold=70):
+                        # Extract full value after field name
+                        # Find best match position
+                        words = line.split()
+                        for i, word in enumerate(words):
+                            if fuzzy_contains(word, field_ar, threshold=70) or field_ar in word:
+                                # Value is everything after
+                                value = ' '.join(words[i+1:]) if i+1 < len(words) else ''
+                                value = value.lstrip(':').lstrip('-').strip()
+                                if value and field_ar not in pairs:
+                                    pairs[field_ar] = value
+                                break
+                        break
+            else:
+                # Original logic for fallback
+                for field_ar in INVOICE_FIELDS.keys():
+                    if field_ar in line:
+                        idx = line.find(field_ar)
+                        after = line[idx + len(field_ar):].strip()
+                        after = after.lstrip(':').lstrip('-').strip()
+                        if after and field_ar not in pairs:
+                            # Extract full value, not just first word
+                            pairs[field_ar] = after
                         break
 
         return pairs
@@ -367,6 +489,7 @@ class DocumentAnalyzer:
         Detect tables from text patterns.
 
         Looks for structured text that resembles table data.
+        Uses fuzzy matching for header detection with OCR errors.
         """
         tables = []
         lines = text.split('\n')
@@ -374,9 +497,19 @@ class DocumentAnalyzer:
         # Look for table header indicators
         header_line_idx = -1
         for i, line in enumerate(lines):
-            # Check for table header keywords
+            # Check for table header keywords with exact match
             header_count = sum(1 for kw in TABLE_HEADER_KEYWORDS if kw in line)
-            if header_count >= 3:  # At least 3 header keywords
+
+            # Also try fuzzy matching for headers
+            if ENHANCED_ANALYSIS and FUZZY_AVAILABLE and header_count < 2:
+                fuzzy_count = 0
+                for kw in TABLE_HEADER_KEYWORDS:
+                    if fuzzy_contains(line, kw, threshold=70):
+                        fuzzy_count += 1
+                header_count = max(header_count, fuzzy_count * 0.8)  # Weight fuzzy matches slightly lower
+
+            # Lower threshold: 2 matches is enough (was 3)
+            if header_count >= 2:
                 header_line_idx = i
                 break
 
@@ -402,8 +535,12 @@ class DocumentAnalyzer:
                 row = self._split_table_row(line)
                 if len(row) >= 2:
                     rows.append(row)
+            # Check for summary section (fuzzy)
+            elif ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+                is_summary = any(fuzzy_contains(line, kw, threshold=70) for kw in SUMMARY_KEYWORDS)
+                if is_summary:
+                    break
             elif any(kw in line for kw in SUMMARY_KEYWORDS):
-                # Hit summary section, stop
                 break
 
         if rows:
@@ -454,58 +591,75 @@ class DocumentAnalyzer:
     ) -> List[LayoutRegion]:
         """
         Build layout regions from extracted data.
+        Uses fuzzy matching for region detection with OCR errors.
         """
         regions = []
         lines = text.split('\n')
 
-        # Detect company info region
+        def fuzzy_keyword_match(line: str, keywords: List[str]) -> bool:
+            """Check if line matches any keyword (exact or fuzzy)."""
+            # Exact match first
+            if any(kw in line for kw in keywords):
+                return True
+            # Fuzzy match
+            if ENHANCED_ANALYSIS and FUZZY_AVAILABLE:
+                for kw in keywords:
+                    if fuzzy_contains(line, kw, threshold=70):
+                        return True
+            return False
+
+        # Detect company info region (first 15 lines)
         company_text = []
-        for line in lines[:10]:  # First 10 lines
-            if any(kw in line for kw in COMPANY_KEYWORDS):
+        for line in lines[:15]:
+            if fuzzy_keyword_match(line, COMPANY_KEYWORDS):
                 company_text.append(line)
 
         if company_text:
             regions.append(LayoutRegion(
                 region_type=LayoutRegionType.COMPANY_INFO,
-                text='\n'.join(company_text)
+                text='\n'.join(company_text),
+                confidence=0.85
             ))
 
         # Detect customer info region
         customer_text = []
         for line in lines:
-            if any(kw in line for kw in CUSTOMER_KEYWORDS):
+            if fuzzy_keyword_match(line, CUSTOMER_KEYWORDS):
                 customer_text.append(line)
 
         if customer_text:
             regions.append(LayoutRegion(
                 region_type=LayoutRegionType.CUSTOMER_INFO,
-                text='\n'.join(customer_text)
+                text='\n'.join(customer_text),
+                confidence=0.85
             ))
 
         # Detect invoice header region
         header_text = []
         for line in lines:
-            if any(kw in line for kw in INVOICE_HEADER_KEYWORDS):
+            if fuzzy_keyword_match(line, INVOICE_HEADER_KEYWORDS):
                 header_text.append(line)
 
         if header_text:
             regions.append(LayoutRegion(
                 region_type=LayoutRegionType.INVOICE_HEADER,
-                text='\n'.join(header_text)
+                text='\n'.join(header_text),
+                confidence=0.85
             ))
 
         # Add table regions
         for table in tables:
             regions.append(LayoutRegion(
                 region_type=LayoutRegionType.TABLE,
-                text=f"Table with {len(table.headers)} columns, {len(table.rows)} rows"
+                text=f"Table with {len(table.headers)} columns, {len(table.rows)} rows",
+                confidence=table.confidence
             ))
 
         # Detect summary region
         summary_text = []
         in_summary = False
         for line in lines:
-            if any(kw in line for kw in SUMMARY_KEYWORDS):
+            if fuzzy_keyword_match(line, SUMMARY_KEYWORDS):
                 in_summary = True
             if in_summary:
                 summary_text.append(line)
@@ -515,7 +669,8 @@ class DocumentAnalyzer:
         if summary_text:
             regions.append(LayoutRegion(
                 region_type=LayoutRegionType.SUMMARY,
-                text='\n'.join(summary_text)
+                text='\n'.join(summary_text),
+                confidence=0.80
             ))
 
         return regions
