@@ -87,12 +87,18 @@ class HybridReadTool:
         except ImportError:
             logger.warning("PaddleEngine not available")
 
-        # Tesseract and Ollama will be added in later phases
+        try:
+            from .engines.tesseract_engine import TesseractEngine
+            self.engine_manager.register_engine_class("tesseract", TesseractEngine)
+        except ImportError:
+            logger.warning("TesseractEngine not available")
+
+        # Ollama will be added in Phase 3
         # try:
-        #     from .engines.tesseract_engine import TesseractEngine
-        #     self.engine_manager.register_engine_class("tesseract", TesseractEngine)
+        #     from .engines.ollama_engine import OllamaEngine
+        #     self.engine_manager.register_engine_class("ollama", OllamaEngine)
         # except ImportError:
-        #     logger.warning("TesseractEngine not available")
+        #     logger.warning("OllamaEngine not available")
 
     def read(
         self,

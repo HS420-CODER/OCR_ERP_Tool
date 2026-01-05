@@ -1,9 +1,12 @@
-# Core OCR
+# Core OCR - PaddleOCR (primary)
 paddlepaddle>=3.0.0
 paddleocr>=3.0.0
 PyMuPDF>=1.20.0
 opencv-python>=4.5.0
 Pillow>=9.0.0
+
+# Core OCR - Tesseract (fallback)
+pytesseract>=0.3.10
 
 # Web API
 flask>=2.0.0
