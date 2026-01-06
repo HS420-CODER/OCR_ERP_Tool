@@ -1040,6 +1040,85 @@ ARABIC_MERGED_WORD_SPLITS = [
 ]
 
 # ============================================
+# "ال" (DEFINITE ARTICLE) REPETITION PATTERNS
+# ============================================
+# OCR often produces repetition artifacts where "ال" or "الا" is repeated
+# multiple times before the actual word root.
+# Example: "الالالالالالالالالالالالالاستحقاق" → "الاستحقاق"
+
+AL_REPETITION_PATTERNS = [
+    # Multiple consecutive "ال" before word (3 or more)
+    # Pattern: الالالالكلمة → الكلمة
+    (r'(?:ال){3,}([ا-ي]+)', r'ال\1'),
+
+    # Multiple "الا" repetitions
+    # Pattern: الاالاالاستحقاق → الاستحقاق
+    (r'(?:الا){2,}([ا-ي]+)', r'الا\1'),
+
+    # Mixed "ال" and "الا" repetition
+    # Pattern: الالاالاستحقاق → الاستحقاق
+    (r'الا(?:لا)+([ا-ي]+)', r'الا\1'),
+
+    # Double "ال" prefix - but NOT words starting with الالك (electronic)
+    # Pattern: الالرقم → الرقم (but preserve الالكتروني, الالكترونية)
+    # Use negative lookahead to avoid matching electronic words
+    (r'الال(?!كترون)([ا-ي]+)', r'ال\1'),
+
+    # Character repetition at end of words (3+ times)
+    # Pattern: الاستحقاقققق → الاستحقاق
+    (r'([ا-ي]+?)([ا-ي])\2{2,}', r'\1\2'),
+]
+
+# ============================================
+# MERGED WORD CORRECTIONS DICTIONARY
+# ============================================
+# Known merged words that OCR produces and their correct split forms
+# These are common in Arabic invoices where OCR fails to detect word boundaries
+
+ARABIC_MERGED_WORD_CORRECTIONS = {
+    # Item + Page merged
+    'الصنفحة': 'الصنف الصفحة',
+    'الصنفوصف': 'الصنف وصف',
+
+    # Invoice terms merged
+    'رقمالفاتورة': 'رقم الفاتورة',
+    'رقمالضريبي': 'رقم الضريبي',
+    'الرقمالضريبي': 'الرقم الضريبي',
+    'رقمالحساب': 'رقم الحساب',
+    'رقمالتليفون': 'رقم التليفون',
+
+    # Date terms merged
+    'تاريخالاستحقاق': 'تاريخ الاستحقاق',
+    'تاريخالفاتورة': 'تاريخ الفاتورة',
+
+    # Quantity/Unit merged
+    'الكميةالوحدة': 'الكمية الوحدة',
+    'سعرالوحدة': 'سعر الوحدة',
+    'السعرالوحدة': 'السعر الوحدة',
+
+    # Total terms merged
+    'الاجماليالضريبي': 'الاجمالي الضريبي',
+    'المجموعالفرعي': 'المجموع الفرعي',
+    'المجموعالكلي': 'المجموع الكلي',
+
+    # Payment terms merged
+    'طريقةالدفع': 'طريقة الدفع',
+    'حالةالدفع': 'حالة الدفع',
+
+    # Bank terms merged
+    'تفاصيلالبنك': 'تفاصيل البنك',
+    'رقمالحسابالبنكي': 'رقم الحساب البنكي',
+
+    # Contact terms merged
+    'البريدالالكتروني': 'البريد الالكتروني',
+    'البريدالإلكتروني': 'البريد الإلكتروني',
+
+    # Bill to terms merged
+    'فاتورةالى': 'فاتورة الى',
+    'فاتورةإلى': 'فاتورة إلى',
+}
+
+# ============================================
 # COMPREHENSIVE DOTTED LETTER CONFUSION PATTERNS
 # ============================================
 # Arabic letters with dots are commonly confused by OCR due to:
@@ -1245,7 +1324,7 @@ ARABIC_DOTTED_LETTER_CORRECTIONS = {
     'المغحة': 'الصفحة',               # الصفحة (page) - م→ص, غ→ف
     'المفحة': 'الصفحة',               # الصفحة - م→ص
     'المحفة': 'الصفحة',               # الصفحة variant
-    'الصنفحة': 'الصفحة',              # الصفحة - merged/confused
+    # NOTE: 'الصنفحة' → 'الصفحة' removed - handled by ARABIC_MERGED_WORD_CORRECTIONS
 
     # ============================================
     # Combined errors (multiple dot confusions)
@@ -1325,7 +1404,7 @@ ARABIC_OCR_CORRECTIONS_EXTENDED = {
     # Character confusion corrections
     'المنف': 'الصنف',                     # المنف → الصنف (م→ص)
     'المصف': 'الصنف',                     # variant
-    'الصف': 'الصنف',                      # truncated
+    # NOTE: 'الصف' -> 'الصنف' removed - matches inside 'الصفحة' causing false positives
 
     # Truncated words - ONLY complete word patterns
     # NOTE: Removed 'ة ا' and 'ة الا' as they match parts of other words
@@ -1349,21 +1428,55 @@ ARABIC_OCR_CORRECTIONS_EXTENDED = {
 # DO NOT add single-character patterns like 'ة ا' - they match everywhere!
 # ============================================
 ARABIC_PHRASE_CORRECTIONS = [
-    # Wrong prefix patterns - order matters (longer first)
+    # ============================================
+    # Wrong ال prefix patterns (longer patterns first)
+    # ============================================
+    # Three-word patterns
     ('الرقم الحساب البنكي', 'رقم الحساب البنكي'),
+
+    # Two-word patterns - wrong ال placement
     ('الرقم فاتورة', 'رقم الفاتورة'),
     ('الرقم الحساب', 'رقم الحساب'),
     ('السعر الوحدة', 'سعر الوحدة'),
     ('الرقم التليفون', 'رقم التليفون'),
+    ('الرقم الضريبي', 'الرقم الضريبي'),  # Keep correct - الرقم الضريبي is valid
 
-    # Missing ال prefix in compound terms
+    # ============================================
+    # Missing ال prefix patterns
+    # ============================================
     ('رقم فاتورة', 'رقم الفاتورة'),
+    ('رقم الضريبي', 'الرقم الضريبي'),  # NEW: Missing first ال
+    ('رقم الحساب البنكي', 'رقم الحساب البنكي'),  # Keep - correct form
+    ('تاريخ استحقاق', 'تاريخ الاستحقاق'),  # NEW: Missing ال before استحقاق
 
-    # Common phrase errors
+    # ============================================
+    # Double ال prefix cleanup
+    # ============================================
+    ('الالرقم', 'الرقم'),
+    ('الالفاتورة', 'الفاتورة'),
+    ('الالضريبي', 'الضريبي'),
+    ('الالحساب', 'الحساب'),
+    ('الالبنك', 'البنك'),
+    ('الالمبلغ', 'المبلغ'),
+    ('الالاجمالي', 'الاجمالي'),
+
+    # ============================================
+    # Common phrase errors (dotted letter confusion)
+    # ============================================
     ('المجموع القرعي', 'المجموع الفرعي'),
     ('المجموع الفرغي', 'المجموع الفرعي'),
     ('طريقة الدقع', 'طريقة الدفع'),
     ('حالة الدقع', 'حالة الدفع'),
+    ('البريد الالكترولى', 'البريد الالكتروني'),
+    ('البريد الالكترونى', 'البريد الالكتروني'),
+
+    # ============================================
+    # Tax-related phrase corrections
+    # ============================================
+    ('ضريبة القيمة المظافة', 'ضريبة القيمة المضافة'),
+    ('ضريبة الفيمة المضافة', 'ضريبة القيمة المضافة'),
+    ('الرفم الضريبي', 'الرقم الضريبي'),
+    ('رفم الضريبي', 'رقم الضريبي'),
 ]
 
 
@@ -1395,6 +1508,120 @@ def split_merged_arabic_words(text: str) -> str:
 
     # Split number + Arabic word combinations
     result = re.sub(r'(\d+)([ا-ي]{2,})', r'\1 \2', result)
+
+    return result
+
+
+def clean_al_prefix_repetition(text: str) -> str:
+    """
+    Detect and remove "ال" (al) prefix repetition artifacts from OCR output.
+
+    OCR often produces repetition artifacts like:
+    - "الالالالالالالالالالالالالاستحقاق" → "الاستحقاق"
+    - "الاالاالاالفاتورة" → "الفاتورة"
+    - "الالرقم" → "الرقم"
+
+    This function detects patterns where "ال" or "الا" is repeated
+    multiple times before a word root and collapses them to a single prefix.
+
+    Args:
+        text: Text with potential repetition artifacts
+
+    Returns:
+        Cleaned text with repetition removed
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Apply all repetition cleanup patterns
+    for pattern, replacement in AL_REPETITION_PATTERNS:
+        try:
+            result = re.sub(pattern, replacement, result)
+        except re.error:
+            continue
+
+    return result
+
+
+def clean_character_repetition(text: str, max_repeat: int = 1) -> str:
+    """
+    Remove excessive character repetition that occurs from OCR errors.
+
+    Examples:
+    - "الاستحقاقققققققق" → "الاستحقاق"
+    - "الفاتورةةةةة" → "الفاتورة"
+    - Any character repeated 3+ times → collapsed to max_repeat times
+
+    Note: This is different from AL_REPETITION_PATTERNS which handles
+    "ال" prefix repetition. This handles single character repetition
+    anywhere in the text.
+
+    Args:
+        text: Text with potential character repetition
+        max_repeat: Maximum allowed consecutive character repeats (default: 1)
+
+    Returns:
+        Cleaned text with excessive repetition removed
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # First, handle specific Arabic trailing character patterns (stricter)
+    # Pattern: ققق at end of words (common OCR error) - collapse to single
+    result = re.sub(r'([ا-ي]+?)ق{2,}(?=\s|$)', r'\1ق', result)
+
+    # Pattern: ككك repetition
+    result = re.sub(r'([ا-ي]+?)ك{2,}(?=\s|$)', r'\1ك', result)
+
+    # Pattern: ييي at end of words
+    result = re.sub(r'([ا-ي]+?)ي{2,}(?=\s|$)', r'\1ي', result)
+
+    # Pattern: ةةة at end of words (ta marbuta)
+    result = re.sub(r'([ا-ي]+?)ة{2,}(?=\s|$)', r'\1ة', result)
+
+    # Pattern: ففف at end of words
+    result = re.sub(r'([ا-ي]+?)ف{2,}(?=\s|$)', r'\1ف', result)
+
+    # General pattern: Any character repeated 3+ times (for non-trailing)
+    pattern = r'(.)\1{2,}'
+    replacement = r'\1' * max_repeat
+    result = re.sub(pattern, replacement, result)
+
+    return result
+
+
+def apply_merged_word_corrections(text: str) -> str:
+    """
+    Apply dictionary-based corrections for known merged Arabic words.
+
+    Uses the ARABIC_MERGED_WORD_CORRECTIONS dictionary to split
+    commonly merged words that OCR produces without proper spacing.
+
+    Args:
+        text: Text with potentially merged words
+
+    Returns:
+        Text with merged words split apart
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Sort by length (longest first) to avoid partial replacements
+    sorted_corrections = sorted(
+        ARABIC_MERGED_WORD_CORRECTIONS.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for merged, split in sorted_corrections:
+        if merged in result:
+            result = result.replace(merged, split)
 
     return result
 
@@ -1786,16 +2013,19 @@ def advanced_arabic_ocr_correction(text: str) -> str:
 
     This is a comprehensive correction pipeline that:
     1. Removes diacritics for better matching
-    2. Splits merged words
-    3. Applies context-aware reconstruction for severely truncated text
-    4. Applies word boundary restoration for truncated words
-    5. Applies phrase-level corrections (multi-word patterns)
-    6. Applies dotted letter confusion corrections (ب ت ث ج ح خ ن ي)
-    7. Applies dictionary-based corrections (multi-pass)
-    8. Restores truncated words using vocabulary matching
-    9. Applies smart prefix restoration (avoiding wrong ال additions)
-    10. Applies fuzzy matching for remaining errors
-    11. Normalizes whitespace
+    2. Cleans character repetition artifacts (ققققققق → ق)
+    3. Cleans "ال" prefix repetition (الالالالاستحقاق → الاستحقاق)
+    4. Splits merged words using patterns
+    5. Applies merged word corrections dictionary
+    6. Applies context-aware reconstruction for severely truncated text
+    7. Applies word boundary restoration for truncated words
+    8. Applies phrase-level corrections (multi-word patterns)
+    9. Applies dotted letter confusion corrections (ب ت ث ج ح خ ن ي)
+    10. Applies dictionary-based corrections (multi-pass)
+    11. Restores truncated words using vocabulary matching
+    12. Applies smart prefix restoration (avoiding wrong ال additions)
+    13. Applies fuzzy matching for remaining errors
+    14. Normalizes whitespace
 
     Args:
         text: Raw OCR output text
@@ -1811,47 +2041,64 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     # Step 1: Remove diacritics
     result = remove_diacritics(result)
 
-    # Step 2: Split merged words first
+    # Step 2: Clean character repetition EARLY (before other processing)
+    # This fixes "الاستحقاقققققققق" → "الاستحقاق"
+    result = clean_character_repetition(result)
+
+    # Step 3: Clean "ال" prefix repetition EARLY
+    # This fixes "الالالالالالالالالالالالالاستحقاق" → "الاستحقاق"
+    result = clean_al_prefix_repetition(result)
+
+    # Step 4: Apply merged word corrections dictionary FIRST
+    # This splits known merged words like "الصنفحة" → "الصنف الصفحة"
+    # Must run before generic splitting to catch specific patterns
+    result = apply_merged_word_corrections(result)
+
+    # Step 5: Split remaining merged words using patterns
     result = split_merged_arabic_words(result)
 
-    # Step 3: Context-aware reconstruction for severely truncated text
+    # Step 6: Context-aware reconstruction for severely truncated text
     # This handles single-character fragments like 'ي' or 'ة ا'
     result = context_aware_reconstruction(result)
 
-    # Step 4: Apply word boundary restoration for truncated words
+    # Step 7: Apply word boundary restoration for truncated words
     # This uses contextual patterns to restore words cut off at boundaries
     result = apply_word_boundary_restoration(result)
 
-    # Step 5: Apply phrase-level corrections BEFORE word corrections
+    # Step 8: Apply phrase-level corrections BEFORE word corrections
     # This handles multi-word patterns like 'الرقم فاتورة' → 'رقم الفاتورة'
     result = apply_phrase_corrections(result)
 
-    # Step 6: Apply dotted letter confusion corrections early
+    # Step 9: Apply dotted letter confusion corrections early
     # This fixes ب↔ت↔ث↔ن↔ي, ج↔ح↔خ, ف↔ق, etc.
     result = apply_dotted_letter_corrections(result)
 
-    # Step 7: Multi-pass correction (dictionary + extended + truncation)
+    # Step 10: Multi-pass correction (dictionary + extended + truncation)
     result = multi_pass_correction(result, passes=3)
 
-    # Step 8: Restore truncated words
+    # Step 11: Restore truncated words
     result = restore_arabic_text(result)
 
-    # Step 9: Restore common prefixes (smart - avoids wrong ال additions)
+    # Step 12: Restore common prefixes (smart - avoids wrong ال additions)
     result = restore_arabic_prefixes(result)
 
-    # Step 10: Apply fuzzy matching for remaining errors
+    # Step 13: Apply fuzzy matching for remaining errors
     result = apply_fuzzy_arabic_correction(result, threshold=0.70)
 
-    # Step 11: Final extended corrections pass (includes dotted letter fixes)
+    # Step 14: Final extended corrections pass (includes dotted letter fixes)
     result = apply_extended_corrections(result)
 
-    # Step 12: Apply phrase corrections again (in case new patterns emerged)
+    # Step 15: Apply phrase corrections again (in case new patterns emerged)
     result = apply_phrase_corrections(result)
 
-    # Step 13: Final word boundary restoration pass
+    # Step 16: Final word boundary restoration pass
     result = apply_word_boundary_restoration(result)
 
-    # Step 14: Normalize whitespace
+    # Step 17: Final cleanup - character and prefix repetition
+    result = clean_character_repetition(result)
+    result = clean_al_prefix_repetition(result)
+
+    # Step 18: Normalize whitespace
     result = normalize_whitespace(result)
 
     return result
