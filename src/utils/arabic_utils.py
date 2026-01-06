@@ -1003,15 +1003,266 @@ def restore_arabic_text(text: str) -> str:
     return ' '.join(restored_words)
 
 
+# ============================================
+# Merged word patterns for splitting
+# Format: (merged_pattern, split_result)
+# ============================================
+ARABIC_MERGED_WORD_SPLITS = [
+    # Phone/contact merged with numbers
+    (r'ماف(\d+)', r'هاتف \1'),           # ماف920002762 → هاتف 920002762
+    (r'هاتف(\d+)', r'هاتف \1'),          # هاتف920002762 → هاتف 920002762
+    (r'تلفون(\d+)', r'تليفون \1'),       # تلفون920002762 → تليفون 920002762
+    (r'فاكس(\d+)', r'فاكس \1'),          # فاكس920002762 → فاكس 920002762
+
+    # Tax number merged
+    (r'رقمارسي', r'رقم ضريبي'),          # رقمارسي → رقم ضريبي
+    (r'رقمضريبي', r'رقم ضريبي'),         # رقمضريبي → رقم ضريبي
+    (r'الرقمالضريبي', r'الرقم الضريبي'), # الرقمالضريبي → الرقم الضريبي
+
+    # Invoice terms merged
+    (r'فاتورةضريبية', r'فاتورة ضريبية'), # فاتورةضريبية → فاتورة ضريبية
+    (r'ضريبةالقيمة', r'ضريبة القيمة'),   # ضريبةالقيمة → ضريبة القيمة
+    (r'القيمةالمضافة', r'القيمة المضافة'), # القيمةالمضافة → القيمة المضافة
+
+    # Common merged patterns
+    (r'(\d+)e([ا-ي])', r'\1 \2'),        # 55000eالتليفون → 55000 التليفون
+    (r'([ا-ي]+)(\d+)', r'\1 \2'),        # Split Arabic followed by numbers
+
+    # Name patterns
+    (r'المندوبصالح', r'المندوب صالح'),   # المندوبصالح → المندوب صالح
+    (r'المدوبصالج', r'المندوب صالح'),    # المدوبصالج → المندوب صالح
+
+    # Common prefix merges
+    (r'منال(\w+)', r'من ال\1'),          # منالصفحة → من الصفحة
+    (r'فيال(\w+)', r'في ال\1'),          # فيالصفحة → في الصفحة
+]
+
+# Additional OCR corrections for remaining errors
+ARABIC_OCR_CORRECTIONS_EXTENDED = {
+    # Specific errors from invoice analysis
+    'الحسنلم': 'المستلم',               # الحسنلم → المستلم
+    'الحسلنم': 'المستلم',               # variant
+    'المسنلم': 'المستلم',               # المسنلم → المستلم
+    'الصسنخدم': 'المستخدم',             # الصسنخدم → المستخدم
+    'المسنخدم': 'المستخدم',             # variant
+    'التخوارزس': 'الخوارزمي',           # التخوارزس → الخوارزمي (name)
+    'المدوبصالج': 'المندوب صالح',       # المدوبصالج → المندوب صالح
+    'المدوب': 'المندوب',                # المدوب → المندوب
+
+    # More truncated words
+    'صن': 'من',                          # صن → من (from)
+    'عن': 'من',                          # sometimes confused
+    'رفمر': 'رقم',                       # رفمر → رقم
+    'رفم': 'رقم',                        # رفم → رقم
+
+    # Financial terms
+    'ضرس': 'ضريبي',                      # ضرس → ضريبي
+    'ضرسي': 'ضريبي',                     # ضرسي → ضريبي
+    'الصرف1': 'الصرف',                   # Remove trailing number
+    'الصرف': 'الصرف',                    # Keep correct
+
+    # Company/location
+    'تخوا': 'سكاي',                      # تخوا → سكاي (Skysoft)
+    'ليويي': 'لتقنية',                   # ليويي → لتقنية
+    'المالة': 'المالية',                 # المالة → المالية
+    'والارية': 'والادارية',              # والارية → والادارية
+    'الارية': 'الادارية',                # الارية → الادارية
+
+    # Amount in words
+    'فغط': 'فقط',                        # فغط → فقط
+    'الفان': 'الفين',                    # الفان → الفين (two thousand)
+    'ولانمانة': 'وثلاثمائة',             # ولانمانة → وثلاثمائة
+    'ربالا': 'ريال',                     # ربالا → ريال
+    'لاعير': 'لاغير',                    # لاعير → لاغير
+    'لاغبر': 'لاغير',                    # variant
+
+    # Page/document terms
+    'الصغحة': 'الصفحة',                  # الصغحة → الصفحة
+    'صغحة': 'صفحة',                      # صغحة → صفحة
+
+    # Invoice header terms
+    'البوع': 'النوع',                    # البوع → النوع
+    'عرض': 'عرض',                        # Keep correct
+    'المرجع': 'المرجع',                  # Keep correct
+    'العوان': 'العنوان',                 # العوان → العنوان
+    'العوانين': 'العناوين',              # العوانين → العناوين
+
+    # Time/date
+    'الموالق': 'الموافق',                # الموالق → الموافق
+    'المواللف': 'الموافق',               # المواللف → الموافق
+}
+
+
+def split_merged_arabic_words(text: str) -> str:
+    """
+    Split merged Arabic words using pattern matching.
+
+    Handles cases where OCR merges multiple words together,
+    especially Arabic words merged with numbers or other Arabic words.
+
+    Args:
+        text: Text with potentially merged words
+
+    Returns:
+        Text with merged words split apart
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Apply regex-based splits
+    for pattern, replacement in ARABIC_MERGED_WORD_SPLITS:
+        result = re.sub(pattern, replacement, result)
+
+    # Split Arabic word + number combinations
+    # Pattern: Arabic letters followed by digits with no space
+    result = re.sub(r'([ا-ي]+)(\d{3,})', r'\1 \2', result)
+
+    # Split number + Arabic word combinations
+    result = re.sub(r'(\d+)([ا-ي]{2,})', r'\1 \2', result)
+
+    return result
+
+
+def apply_extended_corrections(text: str) -> str:
+    """
+    Apply extended OCR corrections for remaining errors.
+
+    This handles specific errors found in invoice analysis
+    that weren't covered by the base correction dictionary.
+
+    Args:
+        text: Text to correct
+
+    Returns:
+        Corrected text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Sort by length (longest first) to avoid partial replacements
+    sorted_corrections = sorted(
+        ARABIC_OCR_CORRECTIONS_EXTENDED.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for wrong, correct in sorted_corrections:
+        if wrong in result:
+            result = result.replace(wrong, correct)
+
+    return result
+
+
+def restore_arabic_prefixes(text: str) -> str:
+    """
+    Restore common Arabic prefixes that may have been truncated.
+
+    Common prefixes: ال (the), ب (with), ل (for), و (and), ف (so)
+
+    Args:
+        text: Text with potentially truncated prefixes
+
+    Returns:
+        Text with restored prefixes
+    """
+    if not text:
+        return text
+
+    # Words that commonly need ال prefix restored
+    WORDS_NEEDING_AL_PREFIX = [
+        ('صفحة', 'الصفحة'),
+        ('تاريخ', 'التاريخ'),
+        ('وقت', 'الوقت'),
+        ('رقم', 'الرقم'),
+        ('مبلغ', 'المبلغ'),
+        ('صنف', 'الصنف'),
+        ('كمية', 'الكمية'),
+        ('وحدة', 'الوحدة'),
+        ('سعر', 'السعر'),
+        ('صافي', 'الصافي'),
+        ('ضريبة', 'الضريبة'),
+        ('اجمالي', 'الاجمالي'),
+        ('خصم', 'الخصم'),
+        ('عميل', 'العميل'),
+        ('بائع', 'البائع'),
+        ('مستلم', 'المستلم'),
+        ('مندوب', 'المندوب'),
+        ('عنوان', 'العنوان'),
+        ('هاتف', 'الهاتف'),
+        ('بريد', 'البريد'),
+        ('بنك', 'البنك'),
+        ('حساب', 'الحساب'),
+    ]
+
+    words = text.split()
+    restored = []
+
+    for word in words:
+        # Check if word needs ال prefix
+        matched = False
+        for base, with_prefix in WORDS_NEEDING_AL_PREFIX:
+            if word == base:
+                restored.append(with_prefix)
+                matched = True
+                break
+
+        if not matched:
+            restored.append(word)
+
+    return ' '.join(restored)
+
+
+def multi_pass_correction(text: str, passes: int = 3) -> str:
+    """
+    Apply correction pipeline multiple times for better results.
+
+    Some corrections may reveal new errors that can be fixed
+    in subsequent passes.
+
+    Args:
+        text: Text to correct
+        passes: Number of correction passes (default: 3)
+
+    Returns:
+        Fully corrected text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    for _ in range(passes):
+        previous = result
+
+        # Apply all correction steps
+        result = fix_ocr_errors(result)
+        result = apply_extended_corrections(result)
+        result = split_merged_arabic_words(result)
+        result = restore_truncated_arabic_word(result)
+
+        # If no changes, stop early
+        if result == previous:
+            break
+
+    return result
+
+
 def advanced_arabic_ocr_correction(text: str) -> str:
     """
     Apply advanced Arabic OCR correction with word restoration.
 
     This is a comprehensive correction pipeline that:
     1. Removes diacritics for better matching
-    2. Applies dictionary-based corrections
-    3. Restores truncated words using vocabulary matching
-    4. Applies fuzzy matching for remaining errors
+    2. Splits merged words
+    3. Applies dictionary-based corrections (multi-pass)
+    4. Restores truncated words using vocabulary matching
+    5. Applies prefix restoration
+    6. Applies fuzzy matching for remaining errors
+    7. Normalizes whitespace
 
     Args:
         text: Raw OCR output text
@@ -1027,16 +1278,25 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     # Step 1: Remove diacritics
     result = remove_diacritics(result)
 
-    # Step 2: Apply dictionary-based corrections (existing function)
-    result = fix_ocr_errors(result)
+    # Step 2: Split merged words first
+    result = split_merged_arabic_words(result)
 
-    # Step 3: Restore truncated words
+    # Step 3: Multi-pass correction (dictionary + extended + truncation)
+    result = multi_pass_correction(result, passes=3)
+
+    # Step 4: Restore truncated words
     result = restore_arabic_text(result)
 
-    # Step 4: Apply fuzzy matching
-    result = apply_fuzzy_arabic_correction(result, threshold=0.75)
+    # Step 5: Restore common prefixes
+    result = restore_arabic_prefixes(result)
 
-    # Step 5: Normalize whitespace
+    # Step 6: Apply fuzzy matching for remaining errors
+    result = apply_fuzzy_arabic_correction(result, threshold=0.70)
+
+    # Step 7: Final extended corrections pass
+    result = apply_extended_corrections(result)
+
+    # Step 8: Normalize whitespace
     result = normalize_whitespace(result)
 
     return result
