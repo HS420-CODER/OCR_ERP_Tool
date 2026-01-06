@@ -443,6 +443,7 @@ class HybridReadTool:
         """
         try:
             from .formatters import DocumentAnalyzer, StructuredOutputFormatter
+            from .formatters.field_dictionary import get_english, INVOICE_FIELDS
 
             analyzer = DocumentAnalyzer()
             formatter = StructuredOutputFormatter()
@@ -458,9 +459,37 @@ class HybridReadTool:
             result.metadata["is_bilingual"] = structure.is_bilingual
             result.metadata["detected_language"] = structure.language
 
+            # Add extracted fields for frontend display
+            # Format: { arabic_key: { english_key: "...", value: "..." } }
+            if structure.key_value_pairs:
+                fields = {}
+                for ar_key, value in structure.key_value_pairs.items():
+                    en_key = get_english(ar_key)
+                    fields[ar_key] = {
+                        "english_key": en_key if en_key != ar_key else "",
+                        "value": value
+                    }
+                result.metadata["fields"] = fields
+
+            # Add document sections for frontend display
+            # Format: [{ name: "...", content: "...", is_rtl: bool }]
+            if structure.regions:
+                sections = []
+                for region in structure.regions:
+                    if region.text:
+                        # Determine if section is RTL (Arabic)
+                        is_rtl = any('\u0600' <= c <= '\u06FF' for c in region.text[:50])
+                        sections.append({
+                            "name": region.region_type.value.replace('_', ' ').title(),
+                            "content": region.text,
+                            "is_rtl": is_rtl
+                        })
+                if sections:
+                    result.metadata["sections"] = sections
+
             logger.info(
                 f"Generated structured output: type={structure.document_type.value}, "
-                f"bilingual={structure.is_bilingual}"
+                f"bilingual={structure.is_bilingual}, fields={len(structure.key_value_pairs)}"
             )
 
         except ImportError as e:

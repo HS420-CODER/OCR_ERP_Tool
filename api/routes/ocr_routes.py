@@ -132,9 +132,49 @@ def process_ocr():
         cleanup_file(filepath)
 
         if result.success:
+            # Convert to dict
+            response_data = result.to_dict()
+
+            # Ensure fields and sections are populated for structured output
+            # This handles cases where the read_tool module might be cached
+            if structured and lang == 'ar' and 'fields' not in response_data.get('metadata', {}):
+                try:
+                    from src.formatters import DocumentAnalyzer
+                    from src.formatters.field_dictionary import get_english
+
+                    analyzer = DocumentAnalyzer()
+                    structure = analyzer.analyze(result)
+
+                    # Add fields
+                    if structure.key_value_pairs:
+                        fields = {}
+                        for ar_key, value in structure.key_value_pairs.items():
+                            en_key = get_english(ar_key)
+                            fields[ar_key] = {
+                                "english_key": en_key if en_key != ar_key else "",
+                                "value": value
+                            }
+                        response_data['metadata']['fields'] = fields
+
+                    # Add sections
+                    if structure.regions:
+                        sections = []
+                        for region in structure.regions:
+                            if region.text:
+                                is_rtl = any('\u0600' <= c <= '\u06FF' for c in region.text[:50])
+                                sections.append({
+                                    "name": region.region_type.value.replace('_', ' ').title(),
+                                    "content": region.text,
+                                    "is_rtl": is_rtl
+                                })
+                        if sections:
+                            response_data['metadata']['sections'] = sections
+                except Exception as e:
+                    logger.warning(f"Failed to add fields/sections: {e}")
+
             return jsonify({
                 'success': True,
-                'data': result.to_dict()
+                'data': response_data
             })
         else:
             return jsonify({
