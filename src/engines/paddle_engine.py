@@ -562,6 +562,16 @@ class PaddleEngine(BaseEngine):
         if lang == "ar" and raw_blocks:
             raw_blocks = self._sort_blocks_rtl(raw_blocks)
 
+        # Apply Arabic OCR corrections to individual text blocks
+        # This ensures Detailed View shows corrected text matching other views
+        if lang == "ar":
+            try:
+                from ..utils.arabic_utils import advanced_arabic_ocr_correction
+                for block in raw_blocks:
+                    block['text'] = advanced_arabic_ocr_correction(block['text'])
+            except ImportError:
+                pass  # Corrections not available, use raw text
+
         # Convert to TextBlock objects
         text_blocks = [
             TextBlock(
