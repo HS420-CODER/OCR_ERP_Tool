@@ -1,0 +1,63 @@
+# =============================================================================
+# ERP Arabic OCR Microservice Dependencies
+# =============================================================================
+# Multi-Engine OCR with Fusion & LLM Correction
+# Target: CER ≤ 0.06 (94% accuracy), 2-20 docs/sec throughput
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Core OCR Engines
+# -----------------------------------------------------------------------------
+paddlepaddle>=2.5.0          # PaddlePaddle deep learning framework
+paddleocr>=2.7.0             # PaddleOCR - primary Arabic OCR engine
+easyocr>=1.7.0               # EasyOCR - secondary engine for fusion
+pytesseract>=0.3.10          # Tesseract wrapper - fallback engine
+
+# -----------------------------------------------------------------------------
+# Web Framework & Server
+# -----------------------------------------------------------------------------
+flask>=2.3.0                 # Flask web framework
+gunicorn>=21.0.0             # Production WSGI server
+werkzeug>=2.3.0              # WSGI utilities
+
+# -----------------------------------------------------------------------------
+# LLM Integration (API-based)
+# -----------------------------------------------------------------------------
+openai>=1.0.0                # OpenAI-compatible API client
+requests>=2.31.0             # HTTP client for API calls
+
+# -----------------------------------------------------------------------------
+# Caching & Performance
+# -----------------------------------------------------------------------------
+redis>=4.5.0                 # Redis client for result caching
+
+# -----------------------------------------------------------------------------
+# Monitoring & Observability
+# -----------------------------------------------------------------------------
+prometheus-client>=0.17.0    # Prometheus metrics exporter
+
+# -----------------------------------------------------------------------------
+# Security
+# -----------------------------------------------------------------------------
+python-magic>=0.4.27         # File type detection via magic bytes
+python-dotenv>=1.0.0         # Environment variable management
+
+# -----------------------------------------------------------------------------
+# Image Processing & Utilities
+# -----------------------------------------------------------------------------
+numpy>=1.24.0                # Numerical computing
+Pillow>=10.0.0               # Image processing
+psutil>=5.9.0                # System resource monitoring
+pdf2image>=1.16.0            # PDF to image conversion
+
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+pytest>=7.4.0                # Testing framework
+pytest-cov>=4.1.0            # Coverage reporting
+
+# -----------------------------------------------------------------------------
+# Optional: Arabic NLP Enhancement
+# -----------------------------------------------------------------------------
+# camel-tools>=1.5.0         # Arabic NLP toolkit (optional)
+# pyarabic>=0.6.15           # Arabic text utilities (optional)

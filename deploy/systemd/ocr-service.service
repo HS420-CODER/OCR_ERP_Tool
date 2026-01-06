@@ -1,0 +1,215 @@
+# ==============================================================================
+# ERP Arabic OCR Microservice - Systemd Service Unit
+# ==============================================================================
+#
+# This service unit manages the OCR microservice via Gunicorn.
+#
+# Installation:
+#   sudo cp ocr-service.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable ocr-service
+#   sudo systemctl start ocr-service
+#
+# Management commands:
+#   sudo systemctl status ocr-service
+#   sudo systemctl start ocr-service
+#   sudo systemctl stop ocr-service
+#   sudo systemctl restart ocr-service
+#   sudo systemctl reload ocr-service
+#
+# View logs:
+#   sudo journalctl -u ocr-service -f
+#   sudo journalctl -u ocr-service --since "1 hour ago"
+#
+# ==============================================================================
+
+[Unit]
+Description=ERP Arabic OCR Microservice (Gunicorn)
+Documentation=https://github.com/your-org/ocr-microservice
+After=network.target redis.service
+Wants=redis.service
+
+# ==============================================================================
+[Service]
+# ==============================================================================
+
+# Service type
+# - simple: Default, main process
+# - forking: For daemons that fork
+# - notify: For services that send sd_notify
+Type=simple
+
+# User and group to run as
+User=www-data
+Group=www-data
+
+# Working directory
+WorkingDirectory=/var/www/ocr-microservice
+
+# Environment file (optional)
+EnvironmentFile=-/var/www/ocr-microservice/.env
+
+# Environment variables
+Environment="PATH=/var/www/ocr-microservice/venv/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="FLASK_ENV=production"
+Environment="GUNICORN_WORKERS=9"
+Environment="GUNICORN_THREADS=2"
+Environment="GUNICORN_TIMEOUT=120"
+Environment="GUNICORN_BIND=127.0.0.1:8000"
+
+# PaddleOCR settings
+Environment="DISABLE_MODEL_SOURCE_CHECK=True"
+Environment="PADDLEPADDLE_PNGFILE=off"
+
+# Start command
+ExecStart=/var/www/ocr-microservice/venv/bin/gunicorn \
+    --config /var/www/ocr-microservice/config/gunicorn.conf.py \
+    --bind 127.0.0.1:8000 \
+    --workers 9 \
+    --threads 2 \
+    --timeout 120 \
+    --access-logfile /var/log/ocr-service/access.log \
+    --error-logfile /var/log/ocr-service/error.log \
+    --capture-output \
+    wsgi:app
+
+# Reload command (graceful restart)
+ExecReload=/bin/kill -s HUP $MAINPID
+
+# Stop command
+ExecStop=/bin/kill -s TERM $MAINPID
+
+# PID file
+PIDFile=/run/ocr-service/ocr-service.pid
+RuntimeDirectory=ocr-service
+
+# ==============================================================================
+# Restart Policy
+# ==============================================================================
+
+# Restart on failure
+Restart=always
+RestartSec=5
+
+# Maximum restart attempts (5 times in 60 seconds)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# ==============================================================================
+# Resource Limits
+# ==============================================================================
+
+# Memory limit (adjust based on available RAM)
+# OCR models require significant memory
+MemoryMax=4G
+MemoryHigh=3G
+
+# CPU quota (optional)
+# CPUQuota=200%
+
+# File descriptor limit
+LimitNOFILE=65536
+
+# Process limit
+LimitNPROC=4096
+
+# Core dump size
+LimitCORE=0
+
+# ==============================================================================
+# Security Hardening
+# ==============================================================================
+
+# Private /tmp directory
+PrivateTmp=true
+
+# Read-only /usr, /boot, /efi
+ProtectSystem=strict
+
+# Protect home directories
+ProtectHome=true
+
+# Writable directories
+ReadWritePaths=/var/www/ocr-microservice/uploads
+ReadWritePaths=/var/log/ocr-service
+ReadWritePaths=/tmp
+
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Restrict capabilities
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# System call filtering (restrict dangerous syscalls)
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @clock @debug @obsolete @reboot @swap @raw-io
+
+# Restrict address families
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Restrict namespace operations
+RestrictNamespaces=true
+
+# Protect kernel tunables
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Lock personality
+LockPersonality=true
+
+# ==============================================================================
+# Logging
+# ==============================================================================
+
+# Standard output/error handling
+StandardOutput=journal
+StandardError=journal
+
+# Syslog identifier
+SyslogIdentifier=ocr-service
+
+# ==============================================================================
+# Timeouts
+# ==============================================================================
+
+# Time to wait for service to start
+TimeoutStartSec=60
+
+# Time to wait for service to stop
+TimeoutStopSec=30
+
+# ==============================================================================
+[Install]
+# ==============================================================================
+
+WantedBy=multi-user.target
+
+# ==============================================================================
+# Additional Configuration Notes
+# ==============================================================================
+#
+# 1. Create log directory:
+#    sudo mkdir -p /var/log/ocr-service
+#    sudo chown www-data:www-data /var/log/ocr-service
+#
+# 2. Create upload directory:
+#    sudo mkdir -p /var/www/ocr-microservice/uploads
+#    sudo chown www-data:www-data /var/www/ocr-microservice/uploads
+#
+# 3. Create PID directory:
+#    sudo mkdir -p /run/ocr-service
+#    sudo chown www-data:www-data /run/ocr-service
+#
+# 4. Test configuration:
+#    sudo systemd-analyze verify /etc/systemd/system/ocr-service.service
+#
+# 5. View service status:
+#    systemctl status ocr-service
+#
+# 6. View resource usage:
+#    systemctl show ocr-service --property=MemoryCurrent
+#
+# ==============================================================================

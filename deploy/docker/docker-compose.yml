@@ -1,0 +1,297 @@
+# ==============================================================================
+# ERP Arabic OCR Microservice - Docker Compose Configuration
+# ==============================================================================
+#
+# This configuration defines the complete OCR service stack:
+# - OCR microservice (Gunicorn + Flask)
+# - Redis cache
+# - Optional: Nginx reverse proxy
+# - Optional: Prometheus + Grafana monitoring
+#
+# Usage:
+#   docker-compose up -d              # Start all services
+#   docker-compose up -d ocr redis    # Start specific services
+#   docker-compose logs -f ocr        # View logs
+#   docker-compose down               # Stop all services
+#   docker-compose down -v            # Stop and remove volumes
+#
+# Build and run:
+#   docker-compose up -d --build
+#
+# ==============================================================================
+
+version: "3.8"
+
+# ==============================================================================
+# Services
+# ==============================================================================
+services:
+
+  # ============================================================================
+  # OCR Microservice
+  # ============================================================================
+  ocr:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: production
+      args:
+        PYTHON_VERSION: "3.10"
+    image: erp-ocr-service:latest
+    container_name: ocr-service
+    restart: unless-stopped
+
+    # Port mapping
+    ports:
+      - "8000:8000"
+
+    # Environment variables
+    environment:
+      # Flask
+      - FLASK_ENV=production
+      - FLASK_APP=wsgi:app
+
+      # Gunicorn
+      - GUNICORN_WORKERS=4
+      - GUNICORN_THREADS=2
+      - GUNICORN_TIMEOUT=120
+      - GUNICORN_BIND=0.0.0.0:8000
+
+      # OCR Settings
+      - DISABLE_MODEL_SOURCE_CHECK=True
+      - OCR_ENGINE_MODE=fusion
+      - OCR_LANGUAGES=ar,en
+
+      # Cache
+      - CACHE_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_TTL_SECONDS=3600
+
+      # LLM (optional)
+      - LLM_ENABLED=false
+      # - LLM_API_URL=http://ollama:11434
+      # - LLM_MODEL=qwen2.5:7b
+
+      # Logging
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+
+    # Volume mounts
+    volumes:
+      # Upload directory (persist uploads across restarts)
+      - ocr-uploads:/app/uploads
+
+      # Model cache (persist downloaded models)
+      - ocr-models:/root/.paddleocr
+      - ocr-easyocr:/root/.EasyOCR
+
+      # Logs
+      - ocr-logs:/var/log/ocr-service
+
+      # Optional: Mount local code for development
+      # - ../../src:/app/src:ro
+      # - ../../api:/app/api:ro
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          cpus: "2"
+          memory: 2G
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v2/ocr/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Dependencies
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    # Network
+    networks:
+      - ocr-network
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ============================================================================
+  # Redis Cache
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: ocr-redis
+    restart: unless-stopped
+
+    # Port mapping (optional - for debugging)
+    ports:
+      - "6379:6379"
+
+    # Redis configuration
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+
+    # Volume for persistence
+    volumes:
+      - redis-data:/data
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Network
+    networks:
+      - ocr-network
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # Nginx Reverse Proxy (Optional)
+  # ============================================================================
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: ocr-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./nginx/ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - ocr
+  #   networks:
+  #     - ocr-network
+
+  # ============================================================================
+  # Prometheus Monitoring (Optional)
+  # ============================================================================
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: ocr-prometheus
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prometheus-data:/prometheus
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.retention.time=7d'
+  #   networks:
+  #     - ocr-network
+
+  # ============================================================================
+  # Grafana Dashboard (Optional)
+  # ============================================================================
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: ocr-grafana
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #   depends_on:
+  #     - prometheus
+  #   networks:
+  #     - ocr-network
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  # OCR service volumes
+  ocr-uploads:
+    driver: local
+  ocr-models:
+    driver: local
+  ocr-easyocr:
+    driver: local
+  ocr-logs:
+    driver: local
+
+  # Redis volume
+  redis-data:
+    driver: local
+
+  # Optional monitoring volumes
+  # prometheus-data:
+  #   driver: local
+  # grafana-data:
+  #   driver: local
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  ocr-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ==============================================================================
+# Configuration Notes:
+# ==============================================================================
+#
+# Development mode:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Production with monitoring:
+#   docker-compose --profile monitoring up -d
+#
+# Scale OCR workers:
+#   docker-compose up -d --scale ocr=3
+#
+# Environment file:
+#   Create .env file in same directory:
+#   GUNICORN_WORKERS=8
+#   REDIS_PASSWORD=secret
+#
+# GPU Support:
+#   Add to ocr service:
+#   deploy:
+#     resources:
+#       reservations:
+#         devices:
+#           - driver: nvidia
+#             count: 1
+#             capabilities: [gpu]
+#
+# ==============================================================================

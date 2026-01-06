@@ -2,7 +2,9 @@ import { useState } from 'react'
 import axios from 'axios'
 import './App.css'
 
-const API_URL = 'http://localhost:5000/api'
+// Use relative path - Vite proxy handles routing to backend in development
+// In production, the Flask backend serves the frontend from /api/* routes
+const API_URL = '/api'
 
 function App() {
   const [file, setFile] = useState(null)

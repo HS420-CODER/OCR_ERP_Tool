@@ -69,6 +69,9 @@ def create_app(config_dict: dict = None) -> Flask:
     # Initialize HybridReadTool
     _init_read_tool(app)
 
+    # Initialize security middleware for v2 API
+    _init_security(app)
+
     # Register blueprints
     _register_blueprints(app)
 
@@ -98,19 +101,36 @@ def _init_read_tool(app: Flask) -> None:
         raise
 
 
+def _init_security(app: Flask) -> None:
+    """Initialize security middleware for v2 API."""
+    try:
+        from src.middleware.security import init_security
+        init_security(app)
+        logger.info("Security middleware initialized for v2 API")
+
+    except Exception as e:
+        logger.warning(f"Security middleware initialization failed: {e}")
+        logger.warning("v2 API will run without authentication")
+
+
 def _register_blueprints(app: Flask) -> None:
     """Register all API blueprints."""
     from .routes.ocr_routes import ocr_bp
     from .routes.vision_routes import vision_bp
     from .routes.engines_routes import engines_bp
     from .routes.config_routes import config_bp
+    from .routes.ocr_v2 import ocr_v2_bp
 
+    # v1 API routes
     app.register_blueprint(ocr_bp)
     app.register_blueprint(vision_bp)
     app.register_blueprint(engines_bp)
     app.register_blueprint(config_bp)
 
-    logger.info("Registered API blueprints: ocr, vision, engines, config")
+    # v2 API routes (ERP Arabic OCR Microservice)
+    app.register_blueprint(ocr_v2_bp)
+
+    logger.info("Registered API blueprints: ocr, vision, engines, config, ocr_v2")
 
 
 def _register_error_handlers(app: Flask) -> None:
@@ -211,7 +231,7 @@ def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = True):
     print("Hybrid Read Tool API Server")
     print("=" * 60)
     print()
-    print("Available Endpoints:")
+    print("v1 API Endpoints:")
     print("  GET  /api/health            - Health check")
     print("  GET  /api/config            - Get configuration")
     print("  PUT  /api/config            - Update configuration")
@@ -226,6 +246,13 @@ def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = True):
     print("  POST /api/vision/prompt     - Custom prompt analysis")
     print("  GET  /api/vision/models     - List vision models")
     print("  GET  /api/vision/status     - Vision server status")
+    print()
+    print("v2 API Endpoints (ERP Arabic OCR Microservice):")
+    print("  POST /api/v2/ocr/invoice    - Process invoice (structured)")
+    print("  POST /api/v2/ocr/document   - Process document (general)")
+    print("  POST /api/v2/ocr/batch      - Batch processing")
+    print("  GET  /api/v2/ocr/health     - Health check")
+    print("  GET  /api/v2/ocr/metrics    - Prometheus metrics")
     print()
     print(f"Starting server on http://{host}:{port}")
     print("=" * 60)
