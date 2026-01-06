@@ -7,11 +7,12 @@ const API_URL = 'http://localhost:5000/api'
 function App() {
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
-  const [language, setLanguage] = useState('en')
+  const [language, setLanguage] = useState('ar')  // Default to Arabic
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
+  const [structuredResult, setStructuredResult] = useState(null)
   const [error, setError] = useState(null)
-  const [viewMode, setViewMode] = useState('text')
+  const [viewMode, setViewMode] = useState('structured')  // Default to structured view
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0]
@@ -65,22 +66,37 @@ function App() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setStructuredResult(null)
 
     const formData = new FormData()
     formData.append('file', file)
     formData.append('lang', language)
+    formData.append('structured', 'true')  // Get structured output in single request
 
     try {
-      const response = await axios.post(`${API_URL}/ocr`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      // Single request with structured=true to avoid concurrent OCR conflicts
+      const ocrResponse = await axios.post(`${API_URL}/ocr`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
 
-      if (response.data.success) {
-        setResult(response.data.data)
+      if (ocrResponse.data.success) {
+        const data = ocrResponse.data.data
+        setResult(data)
+
+        // Extract structured output from the response if available
+        if (data.structured_output) {
+          setStructuredResult({
+            document_type: data.metadata?.document_type || 'DOCUMENT',
+            is_bilingual: data.metadata?.is_bilingual || false,
+            formatted_output: data.structured_output,
+            raw_text: data.full_text,
+            language: data.language,
+            fields: data.metadata?.fields || null,
+            sections: data.metadata?.sections || null
+          })
+        }
       } else {
-        setError(response.data.error || 'OCR processing failed')
+        setError(ocrResponse.data.error || 'OCR processing failed')
       }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Failed to process file')
@@ -197,6 +213,14 @@ function App() {
               <h2>OCR Results</h2>
               <div className="result-actions">
                 <div className="view-toggle">
+                  {structuredResult && (
+                    <button
+                      className={viewMode === 'structured' ? 'active' : ''}
+                      onClick={() => setViewMode('structured')}
+                    >
+                      Structured View
+                    </button>
+                  )}
                   <button
                     className={viewMode === 'text' ? 'active' : ''}
                     onClick={() => setViewMode('text')}
@@ -220,14 +244,73 @@ function App() {
             </div>
 
             <div className="result-stats">
-              <span>Type: {result.type.toUpperCase()}</span>
+              <span>Type: {result.type?.toUpperCase() || 'UNKNOWN'}</span>
               {result.total_pages && <span>Pages: {result.processed_pages}/{result.total_pages}</span>}
               <span>
                 Text Blocks: {result.pages.reduce((sum, p) => sum + p.text_blocks.length, 0)}
               </span>
             </div>
 
-            {viewMode === 'text' ? (
+            {viewMode === 'structured' && structuredResult ? (
+              <div className="result-structured">
+                {/* Document Type Badge */}
+                <div className="document-type-badge">
+                  <span className="badge">{structuredResult.document_type?.toUpperCase() || 'DOCUMENT'}</span>
+                  {structuredResult.is_bilingual && <span className="badge bilingual">Bilingual</span>}
+                  {structuredResult.language && (
+                    <span className="badge language">{structuredResult.language === 'ar' ? 'Arabic' : 'English'}</span>
+                  )}
+                </div>
+
+                {/* Formatted Output - Primary display */}
+                {structuredResult.formatted_output && (
+                  <div className="formatted-output">
+                    <h3>Structured Output</h3>
+                    <pre className="formatted-text">{structuredResult.formatted_output}</pre>
+                  </div>
+                )}
+
+                {/* Key-Value Pairs Table (if available) */}
+                {structuredResult.fields && Object.keys(structuredResult.fields).length > 0 && (
+                  <div className="fields-section">
+                    <h3>Extracted Fields ({Object.keys(structuredResult.fields).length})</h3>
+                    <table className="fields-table">
+                      <thead>
+                        <tr>
+                          <th>Field (Arabic)</th>
+                          <th>Field (English)</th>
+                          <th>Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(structuredResult.fields).map(([key, value], idx) => (
+                          <tr key={idx}>
+                            <td className="arabic-cell" dir="rtl">{key}</td>
+                            <td className="english-cell">{value.english_key || '-'}</td>
+                            <td className="value-cell">{value.value || value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Document Sections (if available) */}
+                {structuredResult.sections && structuredResult.sections.length > 0 && (
+                  <div className="sections-container">
+                    <h3>Document Sections</h3>
+                    {structuredResult.sections.map((section, idx) => (
+                      <div key={idx} className="document-section">
+                        <h4 className="section-title">{section.name}</h4>
+                        <div className="section-content" dir={section.is_rtl ? 'rtl' : 'ltr'}>
+                          {section.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : viewMode === 'text' ? (
               <div className="result-text">
                 {result.pages.map((page, idx) => (
                   <div key={idx} className="page-result">

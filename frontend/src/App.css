@@ -398,6 +398,131 @@ body {
   color: #ef4444;
 }
 
+/* Structured View Styles */
+.result-structured {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.document-type-badge {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+}
+
+.badge.bilingual {
+  background: linear-gradient(90deg, #4ade80, #22c55e);
+}
+
+.badge.language {
+  background: rgba(100, 100, 100, 0.8);
+}
+
+.fields-section,
+.sections-container,
+.formatted-output {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.fields-section h3,
+.sections-container h3,
+.formatted-output h3 {
+  color: #00d4ff;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.fields-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.fields-table th {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.75rem;
+  text-align: left;
+  color: #00d4ff;
+  font-weight: 600;
+  border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+}
+
+.fields-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: top;
+}
+
+.fields-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.arabic-cell {
+  font-family: 'Segoe UI', 'Tahoma', 'Arial', sans-serif;
+  font-size: 1rem;
+  color: #4ade80;
+  min-width: 150px;
+}
+
+.english-cell {
+  color: #888;
+  font-style: italic;
+  min-width: 120px;
+}
+
+.value-cell {
+  color: #e0e0e0;
+  word-break: break-word;
+}
+
+.document-section {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-left: 3px solid #7b2cbf;
+}
+
+.section-title {
+  color: #7b2cbf;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  text-transform: capitalize;
+}
+
+.section-content {
+  color: #ccc;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  font-family: 'Segoe UI', 'Tahoma', sans-serif;
+}
+
+.formatted-text {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: #e0e0e0;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
 .footer {
   text-align: center;
   padding: 1.5rem;

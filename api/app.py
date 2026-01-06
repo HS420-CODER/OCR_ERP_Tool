@@ -230,7 +230,8 @@ def run_server(host: str = '0.0.0.0', port: int = 5000, debug: bool = True):
     print(f"Starting server on http://{host}:{port}")
     print("=" * 60)
 
-    app.run(host=host, port=port, debug=debug)
+    # Disable reloader to prevent conflicts with PaddlePaddle multiprocessing
+    app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 
 # Allow running directly

@@ -434,3 +434,609 @@ def similarity_ratio(s1: str, s2: str) -> float:
     distance = levenshtein_distance(s1, s2)
 
     return 1.0 - (distance / max_len)
+
+
+# Common OCR corrections for Arabic text
+# Maps truncated/misread words to correct forms
+# Based on analysis of PP-OCRv5 Arabic output patterns
+ARABIC_OCR_CORRECTIONS = {
+    # ============================================
+    # Missing first character corrections (ف، ر، ا)
+    # ============================================
+    'اتورة': 'فاتورة',           # فاتورة (invoice) - missing ف
+    'قم': 'رقم',                 # رقم (number) - missing ر
+    'مز': 'رمز',                 # رمز (code) - missing ر
+    'لبريد': 'البريد',           # البريد (email) - missing ا
+    'لرقم': 'الرقم',             # الرقم (the number) - missing ا
+    'لتاريخ': 'التاريخ',         # التاريخ (date) - missing ا
+    'لاجمالي': 'الاجمالي',       # الاجمالي (total) - missing ا
+    'لاجمالى': 'الاجمالي',       # الاجمالي variant
+    'لضريبة': 'الضريبة',         # الضريبة (tax) - missing ا
+    'لضريبي': 'الضريبي',         # الضريبي (tax adj) - missing ا
+    'لعميل': 'العميل',           # العميل (customer) - missing ا
+    'لصنف': 'الصنف',             # الصنف (item) - missing ا
+    'لكمية': 'الكمية',           # الكمية (quantity) - missing ا
+    'لوحدة': 'الوحدة',           # الوحدة (unit) - missing ا
+    'لحساب': 'الحساب',           # الحساب (account) - missing ا
+    'لبنك': 'البنك',             # البنك (bank) - missing ا
+    'لبنكي': 'البنكي',           # البنكي (banking) - missing ا
+    'لمجموع': 'المجموع',         # المجموع (sum) - missing ا
+    'لفرعي': 'الفرعي',           # الفرعي (subtotal) - missing ا
+
+    # ============================================
+    # Character confusion corrections (similar shapes)
+    # ============================================
+    # ف/ق confusion (very common in Arabic OCR)
+    'تقاصيل': 'تفاصيل',          # تفاصيل (details) - ق→ف
+    'قاتورة': 'فاتورة',          # فاتورة (invoice) - ق→ف
+    'قرعي': 'فرعي',              # فرعي (sub) - ق→ف
+    'الدقع': 'الدفع',            # الدفع (payment) - ق→ف
+    'مدقوع': 'مدفوع',            # مدفوع (paid) - ق→ف
+
+    # ن/د confusion
+    'البدك': 'البنك',            # البنك (bank) - د→ن
+    'البدكي': 'البنكي',          # البنكي (banking) - د→ن
+    'البكي': 'البنكي',           # البنكي - missing ن
+    'التليقون': 'التليفون',      # التليفون (telephone) - ق→ف
+    'الهاتق': 'الهاتف',          # الهاتف (phone) - ق→ف
+
+    # ر/ز confusion
+    'الضزيبي': 'الضريبي',        # الضريبي (tax) - ز→ر
+    'الضزيبة': 'الضريبة',        # الضريبة (tax) - ز→ر
+
+    # ت/ث/ب confusion
+    'الثاريخ': 'التاريخ',        # التاريخ (date) - ث→ت
+    'ثاريخ': 'تاريخ',            # تاريخ (date) - ث→ت
+
+    # Missing middle characters
+    'الفع': 'الدفع',             # الدفع (payment) - missing د
+    'حالة الفع': 'حالة الدفع',   # حالة الدفع (payment status)
+    'الليفون': 'التليفون',       # التليفون (telephone) - missing ت
+    'التيفون': 'التليفون',       # التليفون - missing ل
+
+    # ============================================
+    # ى/ي end confusion (very common)
+    # ============================================
+    'الالكترولى': 'الالكتروني',  # ى vs ي at end
+    'الالكترونى': 'الالكتروني',  # ى vs ي at end
+    'الضريبى': 'الضريبي',        # ى vs ي at end
+    'البنكى': 'البنكي',          # ى vs ي at end
+    'الفرعى': 'الفرعي',          # ى vs ي at end
+    'الكلى': 'الكلي',            # ى vs ي at end
+    'الاجمالى': 'الاجمالي',      # ى vs ي at end
+
+    # ============================================
+    # Invoice-specific terms
+    # ============================================
+    'nvoice': 'Invoice',         # English - missing I
+    'ax': 'Tax',                 # English - missing T
+
+    # ============================================
+    # Diacritics-affected words (remove and correct)
+    # ============================================
+    'قَم': 'رقم',                # رقم with diacritics
+    'الَليفون': 'التليفون',      # التليفون with diacritics
+    'الَليفُون': 'التليفون',     # التليفون with diacritics
+    'قَم الَليفُون': 'رقم التليفون',  # Full phrase
+
+    # ============================================
+    # Spacing issues
+    # ============================================
+    'فاتورةالى': 'فاتورة الى',
+    'حالةالدفع': 'حالة الدفع',
+    'رقمالفاتورة': 'رقم الفاتورة',
+    'رقمالضريبي': 'رقم الضريبي',
+    'البريدالالكتروني': 'البريد الالكتروني',
+    'تفاصيلالبنك': 'تفاصيل البنك',
+    'رقمالحساب': 'رقم الحساب',
+
+    # ============================================
+    # Complete phrase corrections
+    # ============================================
+    'اتورة الى': 'فاتورة الى',   # Bill to
+    'تقاصيل البدك': 'تفاصيل البنك',  # Bank details
+    'تقاصيل البنك': 'تفاصيل البنك',  # Bank details variant
+    'رقم الحساب البكي': 'رقم الحساب البنكي',  # Bank account number
+
+    # ============================================
+    # Additional OCR corrections from real invoice testing
+    # ============================================
+    # Tax invoice terms
+    'ضرسة': 'ضريبية',            # ضريبية (tax) - س→ي، missing ي
+    'ضرسية': 'ضريبية',           # ضريبية variant
+    'مببعات': 'مبيعات',          # مبيعات (sales) - ب→ي
+    'مبعات': 'مبيعات',           # مبيعات - missing ي
+    'الصغحة': 'الصفحة',          # الصفحة (page) - غ→ف
+    'الصفجة': 'الصفحة',          # الصفحة variant
+    'صفحة': 'صفحة',              # Keep correct
+
+    # Date/time terms
+    'الناريح': 'التاريخ',        # التاريخ (date) - ن→ت، ح→خ
+    'الناريخ': 'التاريخ',        # التاريخ variant
+    'التاريح': 'التاريخ',        # التاريخ - ح→خ
+    'الوفت': 'الوقت',            # الوقت (time) - ف→ق
+    'الوقث': 'الوقت',            # الوقت variant
+    'المواللف': 'الموافق',       # الموافق (corresponding)
+    'الموالق': 'الموافق',        # الموافق variant
+
+    # Numbers/codes
+    'رفمر': 'رقم',               # رقم (number) - ف→ق
+    'رفم': 'رقم',                # رقم - ف→ق
+    'الرفم': 'الرقم',            # الرقم - ف→ق
+    'برفم': 'برقم',              # برقم (by number)
+
+    # Customer/client terms
+    'فرطاسبة': 'قرطاسية',        # قرطاسية (stationery) - ف→ق، ب→ي
+    'فرطاسية': 'قرطاسية',        # قرطاسية variant
+    'قرطاسبة': 'قرطاسية',        # قرطاسية variant
+    'الشوفية': 'الفاتورة',       # الفاتورة (invoice)
+    'اللفون': 'التليفون',        # التليفون (telephone)
+    'الليفون': 'التليفون',       # التليفون variant
+    'التلفون': 'التليفون',       # التليفون variant
+
+    # Financial terms
+    'الاستحفاق': 'الاستحقاق',    # الاستحقاق (entitlement) - ف→ق
+    'الاستحقاف': 'الاستحقاق',    # الاستحقاق variant
+    'الصافلي': 'الصافي',         # الصافي (net) - ل→nothing
+    'الصاللي': 'الصافي',         # الصافي variant
+    'هاتضرية': 'الضريبة',        # الضريبة (tax)
+    'الاحمالي': 'الاجمالي',      # الاجمالي (total) - ح→ج
+    'الأحمالي': 'الاجمالي',      # الاجمالي variant
+    'احمالي': 'اجمالي',          # اجمالي variant
+
+    # Company/location terms
+    'المركر': 'المركز',          # المركز (center) - ر→ز
+    'المركذ': 'المركز',          # المركز variant
+    'الرنيسى': 'الرئيسي',        # الرئيسي (main) - ن→ئ
+    'الرنيسي': 'الرئيسي',        # الرئيسي variant
+    'الريسي': 'الرئيسي',         # الرئيسي - missing ئ
+    'الريسى': 'الرئيسي',         # الرئيسي variant
+
+    # Unit/quantity terms
+    'الكمبة': 'الكمية',          # الكمية (quantity) - ب→ي
+    'الكمبه': 'الكمية',          # الكمية variant
+    'الوجدة': 'الوحدة',          # الوحدة (unit) - ج→ح
+    'الوجده': 'الوحدة',          # الوحدة variant
+    'اعم': 'أصل',                # أصل (original) - ع→ص
+    'أعم': 'أصل',                # أصل variant
+    'احل': 'أصل',                # أصل variant
+
+    # Additional common errors
+    'السعر': 'السعر',            # السعر (price) - correct
+    'السغر': 'السعر',            # السعر - غ→ع
+    'الصنق': 'الصنف',            # الصنف (item) - ق→ف
+    'السائق': 'السابق',          # السابق (previous) - ئ→ب
+    'الخصم': 'الخصم',            # الخصم (discount) - correct
+    'الفيمة': 'القيمة',          # القيمة (value) - ف→ق
+    'الفيمه': 'القيمة',          # القيمة variant
+    'المضفة': 'المضافة',         # المضافة (added) - missing ا
+    'المضافه': 'المضافة',        # المضافة variant
+    'الملاحظات': 'الملاحظات',    # الملاحظات (notes) - correct
+    'ملاحظات': 'ملاحظات',        # ملاحظات - correct
+
+    # Seller/receiver terms
+    'البايع': 'البائع',          # البائع (seller) - ي→ئ
+    'البائغ': 'البائع',          # البائع variant
+    'المستلم': 'المستلم',        # المستلم (receiver) - correct
+    'المسنلم': 'المستلم',        # المستلم variant
+}
+
+
+def fix_ocr_errors(text: str) -> str:
+    """
+    Fix common OCR errors in Arabic text.
+
+    Applies corrections for:
+    - Missing first characters (common with ف, ر, ا)
+    - Character confusions (ى vs ي, ف vs ق, ن vs د)
+    - Spacing issues
+    - Full phrase corrections
+
+    Args:
+        text: OCR output text
+
+    Returns:
+        Corrected text
+
+    Example:
+        >>> fix_ocr_errors("اتورة ضريبية")
+        'فاتورة ضريبية'
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # First pass: Apply phrase-level corrections (longer strings first)
+    # Sort by length descending to avoid partial replacements
+    sorted_corrections = sorted(
+        ARABIC_OCR_CORRECTIONS.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for wrong, correct in sorted_corrections:
+        # Skip short patterns in phrase pass (handle in word pass)
+        if len(wrong) < 4 and ' ' not in wrong:
+            continue
+
+        # Direct replacement for phrases
+        if wrong in result:
+            # Don't replace if correct form already exists
+            if correct not in result:
+                result = result.replace(wrong, correct)
+
+    # Second pass: Apply word-level corrections
+    for wrong, correct in sorted_corrections:
+        # Skip phrases (already handled)
+        if ' ' in wrong:
+            continue
+
+        # Skip if correct form already exists in text
+        if correct in result:
+            continue
+
+        # Check for standalone wrong word (not part of larger word)
+        # Use word boundary detection suitable for Arabic
+        pattern = r'(?:^|(?<=\s))' + re.escape(wrong) + r'(?:$|(?=\s))'
+        if re.search(pattern, result):
+            result = re.sub(pattern, correct, result)
+
+    return result
+
+
+def apply_fuzzy_arabic_correction(text: str, threshold: float = 0.75) -> str:
+    """
+    Apply fuzzy matching to correct Arabic words that are close to known terms.
+
+    Uses Levenshtein distance to find and correct words that are similar
+    to common Arabic invoice/document terms.
+
+    Args:
+        text: OCR output text
+        threshold: Minimum similarity ratio (0-1) for correction
+
+    Returns:
+        Corrected text
+    """
+    if not text:
+        return text
+
+    # Common Arabic invoice terms with correct spelling
+    CORRECT_TERMS = [
+        # Invoice terms
+        'فاتورة', 'ضريبية', 'مبيعات', 'ضريبة', 'الضريبة', 'الضريبي',
+        # Numbers/codes
+        'رقم', 'الرقم', 'برقم', 'رمز',
+        # Date/time
+        'التاريخ', 'تاريخ', 'الوقت', 'الموافق',
+        # Totals
+        'الاجمالي', 'اجمالي', 'المجموع', 'الفرعي', 'الصافي', 'المبلغ',
+        # Contact
+        'البريد', 'الالكتروني', 'التليفون', 'الهاتف',
+        # Banking
+        'الحساب', 'البنك', 'البنكي', 'الدفع', 'مدفوع',
+        # Items
+        'تفاصيل', 'الصنف', 'الكمية', 'الوحدة', 'السعر', 'الخصم',
+        # Customer/Seller
+        'العميل', 'البائع', 'المستلم', 'الشركة',
+        # Pages
+        'الصفحة', 'صفحة', 'من',
+        # Tax terms
+        'القيمة', 'المضافة', 'الاستحقاق',
+        # Company terms
+        'المركز', 'الرئيسي', 'قرطاسية',
+        # Other
+        'طريقة', 'حالة', 'ملاحظات', 'الملاحظات', 'أصل'
+    ]
+
+    words = text.split()
+    corrected_words = []
+
+    for word in words:
+        # Skip non-Arabic words
+        if not is_arabic(word):
+            corrected_words.append(word)
+            continue
+
+        # Skip if word is already correct
+        if word in CORRECT_TERMS:
+            corrected_words.append(word)
+            continue
+
+        # Find best matching correct term
+        best_match = None
+        best_ratio = 0
+
+        for correct_term in CORRECT_TERMS:
+            ratio = similarity_ratio(word, correct_term)
+            if ratio > best_ratio and ratio >= threshold:
+                best_ratio = ratio
+                best_match = correct_term
+
+        if best_match and best_ratio > threshold:
+            corrected_words.append(best_match)
+        else:
+            corrected_words.append(word)
+
+    return ' '.join(corrected_words)
+
+
+def post_process_arabic_ocr(text: str, normalize: bool = True, use_fuzzy: bool = True) -> str:
+    """
+    Full post-processing pipeline for Arabic OCR output.
+
+    Applies:
+    1. Arabic normalization (diacritics removal for better matching)
+    2. Dictionary-based OCR error corrections
+    3. Fuzzy matching corrections (optional)
+    4. Whitespace normalization
+
+    Args:
+        text: Raw OCR output
+        normalize: Whether to apply Arabic normalization
+        use_fuzzy: Whether to apply fuzzy matching corrections
+
+    Returns:
+        Cleaned and corrected text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # First: Remove diacritics to improve pattern matching
+    # This helps catch words like قَم → رقم
+    result = remove_diacritics(result)
+
+    # Second: Apply dictionary-based OCR error corrections
+    result = fix_ocr_errors(result)
+
+    # Third: Apply fuzzy matching for remaining errors
+    if use_fuzzy:
+        result = apply_fuzzy_arabic_correction(result, threshold=0.80)
+
+    # Fourth: Apply full normalization if requested
+    if normalize:
+        result = normalize_arabic(
+            result,
+            remove_tashkeel=True,
+            remove_tatweel=True,
+            normalize_alef_chars=False,  # Keep alef variations for readability
+            normalize_yaa_chars=False,   # Keep yaa variations
+            normalize_taa=False,
+            normalize_spaces=True
+        )
+    else:
+        result = normalize_whitespace(result)
+
+    return result
+
+
+# ============================================================================
+# ADVANCED ARABIC WORD RESTORATION SYSTEM
+# ============================================================================
+# This system handles truncated Arabic words by detecting patterns and
+# restoring missing characters based on invoice/document vocabulary.
+
+# Comprehensive Arabic invoice vocabulary with all variations
+# Format: (truncated_pattern, correct_form, english_equivalent)
+ARABIC_INVOICE_VOCABULARY = [
+    # === Header Terms ===
+    ('فاتورة', 'فاتورة', 'invoice'),
+    ('اتورة', 'فاتورة', 'invoice'),  # Missing ف
+    ('قاتورة', 'فاتورة', 'invoice'),  # ق instead of ف
+
+    # === Number/ID Terms ===
+    ('رقم', 'رقم', 'number'),
+    ('قم', 'رقم', 'number'),  # Missing ر
+    ('الرقم', 'الرقم', 'the number'),
+    ('لرقم', 'الرقم', 'the number'),  # Missing ا
+
+    # === Tax Terms ===
+    ('الضريبي', 'الضريبي', 'tax'),
+    ('لضريبي', 'الضريبي', 'tax'),  # Missing ا
+    ('ضريبي', 'الضريبي', 'tax'),  # Missing ال
+    ('الضريبة', 'الضريبة', 'tax'),
+    ('لضريبة', 'الضريبة', 'tax'),
+
+    # === Phone Terms ===
+    ('التليفون', 'التليفون', 'telephone'),
+    ('لتليفون', 'التليفون', 'telephone'),  # Missing ا
+    ('تليفون', 'التليفون', 'telephone'),  # Missing ال
+    ('الهاتف', 'الهاتف', 'phone'),
+    ('هاتف', 'الهاتف', 'phone'),
+
+    # === Email Terms ===
+    ('البريد', 'البريد', 'mail'),
+    ('لبريد', 'البريد', 'mail'),  # Missing ا
+    ('بريد', 'البريد', 'mail'),
+    ('الالكتروني', 'الالكتروني', 'electronic'),
+    ('لالكتروني', 'الالكتروني', 'electronic'),
+    ('الكتروني', 'الالكتروني', 'electronic'),
+    ('الإلكتروني', 'الالكتروني', 'electronic'),
+
+    # === Date Terms ===
+    ('التاريخ', 'التاريخ', 'date'),
+    ('لتاريخ', 'التاريخ', 'date'),  # Missing ا
+    ('تاريخ', 'تاريخ', 'date'),
+    ('الاستحقاق', 'الاستحقاق', 'due'),
+    ('لاستحقاق', 'الاستحقاق', 'due'),
+    ('استحقاق', 'الاستحقاق', 'due'),
+
+    # === Payment Terms ===
+    ('الدفع', 'الدفع', 'payment'),
+    ('لدفع', 'الدفع', 'payment'),  # Missing ا
+    ('دفع', 'الدفع', 'payment'),
+    ('مدفوع', 'مدفوع', 'paid'),
+    ('دفوع', 'مدفوع', 'paid'),  # Missing م
+    ('حالة', 'حالة', 'status'),
+    ('طريقة', 'طريقة', 'method'),
+    ('ريقة', 'طريقة', 'method'),  # Missing ط
+
+    # === Bank Terms ===
+    ('البنك', 'البنك', 'bank'),
+    ('لبنك', 'البنك', 'bank'),  # Missing ا
+    ('بنك', 'البنك', 'bank'),
+    ('البنكي', 'البنكي', 'banking'),
+    ('لبنكي', 'البنكي', 'banking'),
+    ('بنكي', 'البنكي', 'banking'),
+    ('الحساب', 'الحساب', 'account'),
+    ('لحساب', 'الحساب', 'account'),
+    ('حساب', 'الحساب', 'account'),
+    ('تفاصيل', 'تفاصيل', 'details'),
+    ('فاصيل', 'تفاصيل', 'details'),  # Missing ت
+    ('قاصيل', 'تفاصيل', 'details'),  # ق instead of تف
+
+    # === Item/Product Terms ===
+    ('الصنف', 'الصنف', 'item'),
+    ('لصنف', 'الصنف', 'item'),
+    ('صنف', 'الصنف', 'item'),
+    ('الكمية', 'الكمية', 'quantity'),
+    ('لكمية', 'الكمية', 'quantity'),
+    ('كمية', 'الكمية', 'quantity'),
+    ('الوحدة', 'الوحدة', 'unit'),
+    ('لوحدة', 'الوحدة', 'unit'),
+    ('وحدة', 'الوحدة', 'unit'),
+    ('سعر', 'سعر', 'price'),
+    ('عر', 'سعر', 'price'),  # Missing س
+
+    # === Total Terms ===
+    ('الاجمالي', 'الاجمالي', 'total'),
+    ('لاجمالي', 'الاجمالي', 'total'),
+    ('اجمالي', 'الاجمالي', 'total'),
+    ('المجموع', 'المجموع', 'sum'),
+    ('لمجموع', 'المجموع', 'sum'),
+    ('مجموع', 'المجموع', 'sum'),
+    ('الفرعي', 'الفرعي', 'subtotal'),
+    ('لفرعي', 'الفرعي', 'subtotal'),
+    ('فرعي', 'الفرعي', 'subtotal'),
+
+    # === Other Common Terms ===
+    ('رمز', 'رمز', 'code'),
+    ('مز', 'رمز', 'code'),  # Missing ر
+    ('العميل', 'العميل', 'customer'),
+    ('لعميل', 'العميل', 'customer'),
+    ('عميل', 'العميل', 'customer'),
+    ('المبلغ', 'المبلغ', 'amount'),
+    ('لمبلغ', 'المبلغ', 'amount'),
+    ('مبلغ', 'المبلغ', 'amount'),
+]
+
+# Build lookup dictionaries for fast access
+_TRUNCATED_TO_CORRECT = {item[0]: item[1] for item in ARABIC_INVOICE_VOCABULARY}
+_CORRECT_WORDS = set(item[1] for item in ARABIC_INVOICE_VOCABULARY)
+
+
+def restore_truncated_arabic_word(word: str) -> str:
+    """
+    Restore a potentially truncated Arabic word to its correct form.
+
+    This function detects common OCR truncation patterns where the first
+    character is missing (especially ر، ف، ا، ت، م، س، ط) and restores
+    the word based on invoice vocabulary.
+
+    Args:
+        word: Arabic word that may be truncated
+
+    Returns:
+        Corrected word if match found, otherwise original word
+
+    Example:
+        >>> restore_truncated_arabic_word("قم")
+        'رقم'
+        >>> restore_truncated_arabic_word("لتليفون")
+        'التليفون'
+    """
+    if not word or not is_arabic(word):
+        return word
+
+    # First check if it's already correct
+    if word in _CORRECT_WORDS:
+        return word
+
+    # Check direct lookup
+    if word in _TRUNCATED_TO_CORRECT:
+        return _TRUNCATED_TO_CORRECT[word]
+
+    # Try prefix restoration patterns
+    # Common missing first characters: ا، ر، ف، ت، م، س، ط، ن
+    prefixes_to_try = ['ا', 'ر', 'ف', 'ت', 'م', 'س', 'ط', 'ن', 'ال']
+
+    for prefix in prefixes_to_try:
+        candidate = prefix + word
+        if candidate in _CORRECT_WORDS:
+            return candidate
+        if candidate in _TRUNCATED_TO_CORRECT:
+            return _TRUNCATED_TO_CORRECT[candidate]
+
+    return word
+
+
+def restore_arabic_text(text: str) -> str:
+    """
+    Restore truncated Arabic words in a full text string.
+
+    Processes each word and attempts to restore truncated forms
+    based on invoice vocabulary patterns.
+
+    Args:
+        text: Full text with potentially truncated Arabic words
+
+    Returns:
+        Text with restored Arabic words
+
+    Example:
+        >>> restore_arabic_text("قم التليفون 1234567890")
+        'رقم التليفون 1234567890'
+    """
+    if not text:
+        return text
+
+    words = text.split()
+    restored_words = []
+
+    for word in words:
+        restored = restore_truncated_arabic_word(word)
+        restored_words.append(restored)
+
+    return ' '.join(restored_words)
+
+
+def advanced_arabic_ocr_correction(text: str) -> str:
+    """
+    Apply advanced Arabic OCR correction with word restoration.
+
+    This is a comprehensive correction pipeline that:
+    1. Removes diacritics for better matching
+    2. Applies dictionary-based corrections
+    3. Restores truncated words using vocabulary matching
+    4. Applies fuzzy matching for remaining errors
+
+    Args:
+        text: Raw OCR output text
+
+    Returns:
+        Fully corrected Arabic text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Step 1: Remove diacritics
+    result = remove_diacritics(result)
+
+    # Step 2: Apply dictionary-based corrections (existing function)
+    result = fix_ocr_errors(result)
+
+    # Step 3: Restore truncated words
+    result = restore_arabic_text(result)
+
+    # Step 4: Apply fuzzy matching
+    result = apply_fuzzy_arabic_correction(result, threshold=0.75)
+
+    # Step 5: Normalize whitespace
+    result = normalize_whitespace(result)
+
+    return result
