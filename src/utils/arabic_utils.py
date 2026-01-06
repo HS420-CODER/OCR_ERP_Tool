@@ -605,6 +605,7 @@ ARABIC_OCR_CORRECTIONS = {
     'السعر': 'السعر',            # السعر (price) - correct
     'السغر': 'السعر',            # السعر - غ→ع
     'الصنق': 'الصنف',            # الصنف (item) - ق→ف
+    'المنف': 'الصنف',            # الصنف (item) - م→ص confusion
     'السائق': 'السابق',          # السابق (previous) - ئ→ب
     'الخصم': 'الخصم',            # الخصم (discount) - correct
     'الفيمة': 'القيمة',          # القيمة (value) - ف→ق
@@ -1050,8 +1051,8 @@ ARABIC_OCR_CORRECTIONS_EXTENDED = {
     'المدوب': 'المندوب',                # المدوب → المندوب
 
     # More truncated words
-    'صن': 'من',                          # صن → من (from)
-    'عن': 'من',                          # sometimes confused
+    # NOTE: Removed 'صن': 'من' - it was matching within الصنف and breaking it
+    # 'عن': 'من' also removed - too aggressive, 'عن' is a valid word
     'رفمر': 'رقم',                       # رفمر → رقم
     'رفم': 'رقم',                        # رفم → رقم
 
@@ -1090,7 +1091,60 @@ ARABIC_OCR_CORRECTIONS_EXTENDED = {
     # Time/date
     'الموالق': 'الموافق',                # الموالق → الموافق
     'المواللف': 'الموافق',               # المواللف → الموافق
+
+    # ============================================
+    # Multi-language invoice specific corrections
+    # ============================================
+    # Wrong prefix corrections (ال added incorrectly)
+    'الرقم فاتورة': 'رقم الفاتورة',       # الرقم فاتورة → رقم الفاتورة
+    'الرقم الحساب البنكي': 'رقم الحساب البنكي',  # Wrong prefix
+    'الرقم الحساب': 'رقم الحساب',         # Wrong prefix
+    'السعر الوحدة': 'سعر الوحدة',         # السعر الوحدة → سعر الوحدة
+    'الرقم التليفون': 'رقم التليفون',     # Wrong prefix
+
+    # Character confusion corrections
+    'المنف': 'الصنف',                     # المنف → الصنف (م→ص)
+    'المصف': 'الصنف',                     # variant
+    'الصف': 'الصنف',                      # truncated
+
+    # Truncated words - ONLY complete word patterns
+    # NOTE: Removed 'ة ا' and 'ة الا' as they match parts of other words
+    'الاستحقا': 'الاستحقاق',              # الاستحقا → الاستحقاق
+    'استحقاق': 'الاستحقاق',               # Missing ال
+
+    # Invoice document terms
+    'المبلغ المدوع': 'المبلغ المدفوع',    # المبلغ المدوع → المبلغ المدفوع
+    'المبلع المدفوع': 'المبلغ المدفوع',   # variant
+    'المبلغ المدقوع': 'المبلغ المدفوع',   # variant (ق→ف)
+
+    # Header terms
+    'فاتوره': 'فاتورة',                   # ه→ة at end
+    'قاتورة': 'فاتورة',                   # ق→ف at start
 }
+
+# ============================================
+# Phrase-level corrections (applied before word corrections)
+# These handle multi-word sequences that need correction together
+# NOTE: These must be COMPLETE WORD sequences to avoid partial matches
+# DO NOT add single-character patterns like 'ة ا' - they match everywhere!
+# ============================================
+ARABIC_PHRASE_CORRECTIONS = [
+    # Wrong prefix patterns - order matters (longer first)
+    ('الرقم الحساب البنكي', 'رقم الحساب البنكي'),
+    ('الرقم فاتورة', 'رقم الفاتورة'),
+    ('الرقم الحساب', 'رقم الحساب'),
+    ('السعر الوحدة', 'سعر الوحدة'),
+    ('الرقم التليفون', 'رقم التليفون'),
+
+    # Missing ال prefix in compound terms
+    ('رقم فاتورة', 'رقم الفاتورة'),
+
+    # Common phrase errors
+    ('المجموع القرعي', 'المجموع الفرعي'),
+    ('المجموع الفرغي', 'المجموع الفرعي'),
+    ('طريقة الدقع', 'طريقة الدفع'),
+    ('حالة الدقع', 'حالة الدفع'),
+]
 
 
 def split_merged_arabic_words(text: str) -> str:
@@ -1157,6 +1211,71 @@ def apply_extended_corrections(text: str) -> str:
     return result
 
 
+def apply_phrase_corrections(text: str) -> str:
+    """
+    Apply phrase-level corrections before word-level corrections.
+
+    This handles multi-word sequences that need to be corrected together,
+    such as wrong prefix patterns like 'الرقم فاتورة' → 'رقم الفاتورة'.
+
+    Args:
+        text: Text to correct
+
+    Returns:
+        Corrected text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Sort by length (longest first) to avoid partial replacements
+    sorted_phrases = sorted(
+        ARABIC_PHRASE_CORRECTIONS,
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for wrong, correct in sorted_phrases:
+        if wrong in result:
+            result = result.replace(wrong, correct)
+
+    return result
+
+
+def context_aware_reconstruction(text: str) -> str:
+    """
+    Use surrounding context to reconstruct severely truncated Arabic words.
+
+    This handles cases where OCR produces single characters or very short
+    fragments that can be reconstructed based on neighboring content.
+
+    IMPORTANT: Only matches standalone characters, not parts of other words.
+
+    Args:
+        text: Text with potentially truncated words
+
+    Returns:
+        Text with reconstructed words
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Context-based reconstructions - ONLY for STANDALONE characters
+    # Pattern: standalone single ي (surrounded by spaces) near phone number
+    result = re.sub(r'(?:^|\s)ي\s+(\d{7,})', r' رقم التليفون \1', result)
+
+    # Pattern: standalone ي before "Phone" word
+    result = re.sub(r'(?:^|\s)ي\s+Phone\b', r' رقم التليفون Phone', result)
+
+    # NOTE: Removed the dangerous 'ة ا' pattern that was matching
+    # parts of words like فاتورة الى and causing corruption
+
+    return result.strip()
+
+
 def restore_arabic_prefixes(text: str) -> str:
     """
     Restore common Arabic prefixes that may have been truncated.
@@ -1173,16 +1292,18 @@ def restore_arabic_prefixes(text: str) -> str:
         return text
 
     # Words that commonly need ال prefix restored
+    # NOTE: رقم and سعر are EXCLUDED because they often appear in compound
+    # terms like "رقم الفاتورة" and "سعر الوحدة" where they should NOT have ال
     WORDS_NEEDING_AL_PREFIX = [
         ('صفحة', 'الصفحة'),
         ('تاريخ', 'التاريخ'),
         ('وقت', 'الوقت'),
-        ('رقم', 'الرقم'),
+        # 'رقم' excluded - part of compound terms like رقم الفاتورة
         ('مبلغ', 'المبلغ'),
         ('صنف', 'الصنف'),
         ('كمية', 'الكمية'),
         ('وحدة', 'الوحدة'),
-        ('سعر', 'السعر'),
+        # 'سعر' excluded - part of compound terms like سعر الوحدة
         ('صافي', 'الصافي'),
         ('ضريبة', 'الضريبة'),
         ('اجمالي', 'الاجمالي'),
@@ -1201,14 +1322,21 @@ def restore_arabic_prefixes(text: str) -> str:
     words = text.split()
     restored = []
 
-    for word in words:
+    for i, word in enumerate(words):
         # Check if word needs ال prefix
         matched = False
-        for base, with_prefix in WORDS_NEEDING_AL_PREFIX:
-            if word == base:
-                restored.append(with_prefix)
-                matched = True
-                break
+
+        # Skip prefix restoration if next word already starts with ال
+        # This prevents "رقم الفاتورة" from becoming "الرقم الفاتورة"
+        next_word = words[i + 1] if i + 1 < len(words) else ""
+        skip_prefix = next_word.startswith('ال') or next_word.startswith('ا')
+
+        if not skip_prefix:
+            for base, with_prefix in WORDS_NEEDING_AL_PREFIX:
+                if word == base:
+                    restored.append(with_prefix)
+                    matched = True
+                    break
 
         if not matched:
             restored.append(word)
@@ -1258,11 +1386,13 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     This is a comprehensive correction pipeline that:
     1. Removes diacritics for better matching
     2. Splits merged words
-    3. Applies dictionary-based corrections (multi-pass)
-    4. Restores truncated words using vocabulary matching
-    5. Applies prefix restoration
-    6. Applies fuzzy matching for remaining errors
-    7. Normalizes whitespace
+    3. Applies context-aware reconstruction for severely truncated text
+    4. Applies phrase-level corrections (multi-word patterns)
+    5. Applies dictionary-based corrections (multi-pass)
+    6. Restores truncated words using vocabulary matching
+    7. Applies smart prefix restoration (avoiding wrong ال additions)
+    8. Applies fuzzy matching for remaining errors
+    9. Normalizes whitespace
 
     Args:
         text: Raw OCR output text
@@ -1281,22 +1411,33 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     # Step 2: Split merged words first
     result = split_merged_arabic_words(result)
 
-    # Step 3: Multi-pass correction (dictionary + extended + truncation)
+    # Step 3: Context-aware reconstruction for severely truncated text
+    # This handles single-character fragments like 'ي' or 'ة ا'
+    result = context_aware_reconstruction(result)
+
+    # Step 4: Apply phrase-level corrections BEFORE word corrections
+    # This handles multi-word patterns like 'الرقم فاتورة' → 'رقم الفاتورة'
+    result = apply_phrase_corrections(result)
+
+    # Step 5: Multi-pass correction (dictionary + extended + truncation)
     result = multi_pass_correction(result, passes=3)
 
-    # Step 4: Restore truncated words
+    # Step 6: Restore truncated words
     result = restore_arabic_text(result)
 
-    # Step 5: Restore common prefixes
+    # Step 7: Restore common prefixes (smart - avoids wrong ال additions)
     result = restore_arabic_prefixes(result)
 
-    # Step 6: Apply fuzzy matching for remaining errors
+    # Step 8: Apply fuzzy matching for remaining errors
     result = apply_fuzzy_arabic_correction(result, threshold=0.70)
 
-    # Step 7: Final extended corrections pass
+    # Step 9: Final extended corrections pass
     result = apply_extended_corrections(result)
 
-    # Step 8: Normalize whitespace
+    # Step 10: Apply phrase corrections again (in case new patterns emerged)
+    result = apply_phrase_corrections(result)
+
+    # Step 11: Normalize whitespace
     result = normalize_whitespace(result)
 
     return result
