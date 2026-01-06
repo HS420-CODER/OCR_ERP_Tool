@@ -17,9 +17,14 @@ from pathlib import Path
 os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
 # Add project root to Python path
+# IMPORTANT: project_root must come BEFORE src to avoid src/config.py shadowing config/
 project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / 'src'))
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+# src goes after project_root
+src_path = str(project_root / 'src')
+if src_path not in sys.path:
+    sys.path.append(src_path)
 
 # Configure logging
 logging.basicConfig(

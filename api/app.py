@@ -17,8 +17,14 @@ from flask import Flask, jsonify, send_from_directory
 # Disable model source check for offline operation
 os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add paths for imports
+# IMPORTANT: project_root must come BEFORE src to avoid src/config.py shadowing config/
+project_root = str(Path(__file__).parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+src_path = str(Path(__file__).parent.parent / "src")
+if src_path not in sys.path:
+    sys.path.append(src_path)
 
 from flask_cors import CORS
 
