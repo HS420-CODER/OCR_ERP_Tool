@@ -704,11 +704,12 @@ def apply_fuzzy_arabic_correction(text: str, threshold: float = 0.75) -> str:
         return text
 
     # Common Arabic invoice terms with correct spelling
+    # IMPORTANT: Include both with and without ال prefix where applicable
     CORRECT_TERMS = [
         # Invoice terms
-        'فاتورة', 'ضريبية', 'مبيعات', 'ضريبة', 'الضريبة', 'الضريبي',
+        'فاتورة', 'الفاتورة', 'ضريبية', 'مبيعات', 'ضريبة', 'الضريبة', 'الضريبي',
         # Numbers/codes
-        'رقم', 'الرقم', 'برقم', 'رمز',
+        'رقم', 'الرقم', 'برقم', 'رمز', 'الرمز',
         # Date/time
         'التاريخ', 'تاريخ', 'الوقت', 'الموافق',
         # Totals
@@ -1038,6 +1039,225 @@ ARABIC_MERGED_WORD_SPLITS = [
     (r'فيال(\w+)', r'في ال\1'),          # فيالصفحة → في الصفحة
 ]
 
+# ============================================
+# COMPREHENSIVE DOTTED LETTER CONFUSION PATTERNS
+# ============================================
+# Arabic letters with dots are commonly confused by OCR due to:
+# - Similar base shapes with different dot positions
+# - Dots being missed or added incorrectly
+# - Dots being placed in wrong positions
+#
+# Groups of commonly confused letters:
+# 1. ب (ba-1 below) ↔ ت (ta-2 above) ↔ ث (tha-3 above) ↔ ن (nun-1 above) ↔ ي (ya-2 below)
+# 2. ج (jim-1 below) ↔ ح (ha-none) ↔ خ (kha-1 above)
+# 3. ف (fa-1 above) ↔ ق (qaf-2 above)
+# 4. ص (sad-none) ↔ ض (dad-1 above)
+# 5. س (sin-none) ↔ ش (shin-3 above)
+# 6. د (dal-none) ↔ ذ (dhal-1 above)
+# 7. ر (ra-none) ↔ ز (zain-1 above)
+# 8. ط (ta-none) ↔ ظ (dha-1 above)
+# 9. ع (ain-none) ↔ غ (ghain-1 above)
+
+ARABIC_DOTTED_LETTER_CORRECTIONS = {
+    # ============================================
+    # ب ↔ ت ↔ ث ↔ ن ↔ ي confusion (similar base shape)
+    # ============================================
+    # ب→ت errors
+    'الترليد': 'البريد',             # البريد (mail) - ب→ت, ر→ل
+    'التنك': 'البنك',                 # البنك (bank) - ب→ت
+    'التنكي': 'البنكي',               # البنكي (banking) - ب→ت
+    'التائع': 'البائع',               # البائع (seller) - ب→ت
+    'تائع': 'بائع',                   # بائع - ب→ت
+    'التريد': 'البريد',               # البريد - ب→ت
+    'التاقي': 'الباقي',               # الباقي (remaining) - ب→ت
+
+    # ت→ب errors
+    'الباريخ': 'التاريخ',             # التاريخ (date) - ت→ب
+    'البليفون': 'التليفون',           # التليفون (telephone) - ت→ب
+    'بفاصيل': 'تفاصيل',               # تفاصيل (details) - ت→ب
+    'البفاصيل': 'التفاصيل',           # التفاصيل - ت→ب
+    'البجاري': 'التجاري',             # التجاري (commercial) - ت→ب
+    'البجارية': 'التجارية',           # التجارية - ت→ب
+    'السجل البجاري': 'السجل التجاري', # السجل التجاري
+
+    # ن→ب errors
+    'البدوب': 'المندوب',              # المندوب (agent) - ن→ب
+    'المبدوب': 'المندوب',             # المندوب - ن→ب, n→b
+    'البك': 'البنك',                  # البنك - missing ن
+
+    # ي→ب errors (at word end)
+    'الضريبب': 'الضريبي',             # الضريبي (tax) - ي→ب at end
+    'البنكب': 'البنكي',               # البنكي - ي→ب at end
+    'الفرعب': 'الفرعي',               # الفرعي - ي→ب at end
+    'الاجمالب': 'الاجمالي',           # الاجمالي - ي→ب at end
+    'الالكترونب': 'الالكتروني',       # الالكتروني - ي→ب at end
+
+    # ث→ت errors
+    'الثاريخ': 'التاريخ',             # التاريخ (date) - ث→ت
+    'ثاريخ': 'تاريخ',                 # تاريخ - ث→ت
+    'الثليفون': 'التليفون',           # التليفون - ث→ت
+    'ثفاصيل': 'تفاصيل',               # تفاصيل - ث→ت
+
+    # ن→ي errors
+    'الضريبن': 'الضريبي',             # الضريبي - ن→ي at end
+    'البنكن': 'البنكي',               # البنكي - ن→ي at end
+    'الالكترونن': 'الالكتروني',       # الالكتروني - ن→ي at end
+
+    # ============================================
+    # ج ↔ ح ↔ خ confusion (jim/ha/kha group)
+    # ============================================
+    # ح→خ errors
+    'التاريح': 'التاريخ',             # التاريخ (date) - ح→خ
+    'تاريح': 'تاريخ',                 # تاريخ - ح→خ
+    'الاستححاق': 'الاستحقاق',         # الاستحقاق - ح→خ
+
+    # خ→ح errors
+    'التاريخ': 'التاريخ',             # Keep correct
+    'الخساب': 'الحساب',               # الحساب (account) - خ→ح
+    'خساب': 'حساب',                   # حساب - خ→ح
+    'الخالة': 'الحالة',               # الحالة (status) - خ→ح
+    'خالة': 'حالة',                   # حالة - خ→ح
+
+    # ج→ح errors
+    'الجساب': 'الحساب',               # الحساب - ج→ح
+    'جساب': 'حساب',                   # حساب - ج→ح
+    'الجالة': 'الحالة',               # الحالة - ج→ح
+    'جالة': 'حالة',                   # حالة - ج→ح
+
+    # ح→ج errors
+    'الاحمالي': 'الاجمالي',           # الاجمالي (total) - ح→ج
+    'احمالي': 'اجمالي',               # اجمالي - ح→ج
+    'الحموع': 'المجموع',              # المجموع (sum) - ح→ج, missing م
+
+    # ============================================
+    # ف ↔ ق confusion (fa/qaf - dots above)
+    # ============================================
+    'قاتورة': 'فاتورة',               # فاتورة - ق→ف
+    'الدقع': 'الدفع',                 # الدفع (payment) - ق→ف
+    'دقع': 'دفع',                     # دفع - ق→ف
+    'مدقوع': 'مدفوع',                 # مدفوع (paid) - ق→ف
+    'تقاصيل': 'تفاصيل',               # تفاصيل (details) - ق→ف
+    'القرعي': 'الفرعي',               # الفرعي (subtotal) - ق→ف
+    'قرعي': 'فرعي',                   # فرعي - ق→ف
+    'الهاتق': 'الهاتف',               # الهاتف (phone) - ق→ف
+    'هاتق': 'هاتف',                   # هاتف - ق→ف
+    'طريقة الدقع': 'طريقة الدفع',     # طريقة الدفع
+    'حالة الدقع': 'حالة الدفع',       # حالة الدفع
+    'الصنق': 'الصنف',                 # الصنف (item) - ق→ف
+    'صنق': 'صنف',                     # صنف - ق→ف
+    'الوظيقة': 'الوظيفة',             # الوظيفة (function) - ق→ف
+    'التليقون': 'التليفون',           # التليفون - ق→ف
+    'تليقون': 'تليفون',               # تليفون - ق→ف
+    'رقم التليقون': 'رقم التليفون',   # رقم التليفون
+
+    # ف→ق errors (less common but happens)
+    'الفيمة': 'القيمة',               # القيمة (value) - ف→ق
+    'فيمة': 'قيمة',                   # قيمة - ف→ق
+    'الفرطاسية': 'القرطاسية',         # القرطاسية (stationery) - ف→ق
+    'الرفم': 'الرقم',                 # الرقم (number) - ف→ق
+    'رفم': 'رقم',                     # رقم - ف→ق
+
+    # ============================================
+    # ص ↔ ض confusion (sad/dad)
+    # ============================================
+    'الضنف': 'الصنف',                 # الصنف (item) - ض→ص
+    'ضنف': 'صنف',                     # صنف - ض→ص
+    'الضفحة': 'الصفحة',               # الصفحة (page) - ض→ص
+    'ضفحة': 'صفحة',                   # صفحة - ض→ص
+    'الضافي': 'الصافي',               # الصافي (net) - ض→ص
+    'ضافي': 'صافي',                   # صافي - ض→ص
+    'الخضم': 'الخصم',                 # الخصم (discount) - ض→ص
+    'خضم': 'خصم',                     # خصم - ض→ص
+
+    # ص→ض errors
+    'الصريبة': 'الضريبة',             # الضريبة (tax) - ص→ض
+    'صريبة': 'ضريبة',                 # ضريبة - ص→ض
+    'الصريبي': 'الضريبي',             # الضريبي - ص→ض
+    'صريبي': 'ضريبي',                 # ضريبي - ص→ض
+    'المصافة': 'المضافة',             # المضافة (added) - ص→ض
+    'مصافة': 'مضافة',                 # مضافة - ص→ض
+
+    # ============================================
+    # س ↔ ش confusion (sin/shin)
+    # ============================================
+    'الشركة': 'الشركة',               # Keep correct
+    'السركة': 'الشركة',               # الشركة (company) - س→ش
+    'سركة': 'شركة',                   # شركة - س→ش
+    'الحشاب': 'الحساب',               # الحساب (account) - ش→س
+    'حشاب': 'حساب',                   # حساب - ش→س
+    'الاشتحقاق': 'الاستحقاق',         # الاستحقاق (due) - ش→س
+    'اشتحقاق': 'استحقاق',             # استحقاق - ش→س
+    'الشعر': 'السعر',                 # السعر (price) - ش→س
+    'شعر': 'سعر',                     # سعر - ش→س
+    'المشتلم': 'المستلم',             # المستلم (receiver) - ش→س
+    'مشتلم': 'مستلم',                 # مستلم - ش→س
+
+    # ============================================
+    # د ↔ ذ confusion (dal/dhal)
+    # ============================================
+    'مذفوع': 'مدفوع',                 # مدفوع (paid) - ذ→د
+    'الذفع': 'الدفع',                 # الدفع (payment) - ذ→د
+    'ذفع': 'دفع',                     # دفع - ذ→د
+    'المنذوب': 'المندوب',             # المندوب (agent) - ذ→د
+    'منذوب': 'مندوب',                 # مندوب - ذ→د
+    'الوحذة': 'الوحدة',               # الوحدة (unit) - ذ→د
+    'وحذة': 'وحدة',                   # وحدة - ذ→د
+
+    # ============================================
+    # ر ↔ ز confusion (ra/zain)
+    # ============================================
+    'زقم': 'رقم',                     # رقم (number) - ز→ر
+    'الزقم': 'الرقم',                 # الرقم - ز→ر
+    'زمز': 'رمز',                     # رمز (code) - ز→ر
+    'الزمز': 'الرمز',                 # الرمز - ز→ر
+    'المزكز': 'المركز',               # المركز (center) - ز→ر
+    'مزكز': 'مركز',                   # مركز - ز→ر
+    'الضزيبة': 'الضريبة',             # الضريبة - ز→ر
+    'ضزيبة': 'ضريبة',                 # ضريبة - ز→ر
+    'الضزيبي': 'الضريبي',             # الضريبي - ز→ر
+    'ضزيبي': 'ضريبي',                 # ضريبي - ز→ر
+
+    # ر→ز errors
+    'الرمز': 'الرمز',                 # Keep correct
+    'المركر': 'المركز',               # المركز (center) - ر→ز at end
+    'مركر': 'مركز',                   # مركز - ر→ز
+
+    # ============================================
+    # ط ↔ ظ confusion (ta/dha)
+    # ============================================
+    'ظريقة': 'طريقة',                 # طريقة (method) - ظ→ط
+    'الظريقة': 'الطريقة',             # الطريقة - ظ→ط
+    'الوظيفة': 'الوظيفة',             # Keep correct
+
+    # ============================================
+    # ع ↔ غ confusion (ain/ghain)
+    # ============================================
+    'المبلع': 'المبلغ',               # المبلغ (amount) - ع→غ
+    'مبلع': 'مبلغ',                   # مبلغ - ع→غ
+    'الفرعي': 'الفرعي',               # Keep correct
+    'القرغي': 'الفرعي',               # الفرعي - غ→ع, ق→ف
+    'لاعير': 'لاغير',                 # لاغير (nothing else) - ع→غ
+
+    # ============================================
+    # م ↔ ص confusion (similar in some fonts)
+    # ============================================
+    'المنف': 'الصنف',                 # الصنف (item) - م→ص
+    'المغحة': 'الصفحة',               # الصفحة (page) - م→ص, غ→ف
+    'المفحة': 'الصفحة',               # الصفحة - م→ص
+    'المحفة': 'الصفحة',               # الصفحة variant
+    'الصنفحة': 'الصفحة',              # الصفحة - merged/confused
+
+    # ============================================
+    # Combined errors (multiple dot confusions)
+    # ============================================
+    'التقاصيل': 'التفاصيل',           # التفاصيل - ق→ف
+    'البقاصيل': 'التفاصيل',           # التفاصيل - ب→ت, ق→ف
+    'تقاصيل البدك': 'تفاصيل البنك',   # تفاصيل البنك
+    'تقاصيل التنك': 'تفاصيل البنك',   # تفاصيل البنك
+    'الرفم الضزيبي': 'الرقم الضريبي', # الرقم الضريبي
+    'رفم الضزيبي': 'رقم الضريبي',     # رقم الضريبي
+}
+
 # Additional OCR corrections for remaining errors
 ARABIC_OCR_CORRECTIONS_EXTENDED = {
     # Specific errors from invoice analysis
@@ -1109,8 +1329,8 @@ ARABIC_OCR_CORRECTIONS_EXTENDED = {
 
     # Truncated words - ONLY complete word patterns
     # NOTE: Removed 'ة ا' and 'ة الا' as they match parts of other words
-    'الاستحقا': 'الاستحقاق',              # الاستحقا → الاستحقاق
-    'استحقاق': 'الاستحقاق',               # Missing ال
+    # NOTE: 'الاستحقا' and 'استحقاق' removed - they match inside 'الاستحقاق'
+    # These are handled by word boundary restoration patterns instead
 
     # Invoice document terms
     'المبلغ المدوع': 'المبلغ المدفوع',    # المبلغ المدوع → المبلغ المدفوع
@@ -1179,6 +1399,52 @@ def split_merged_arabic_words(text: str) -> str:
     return result
 
 
+def apply_dotted_letter_corrections(text: str) -> str:
+    """
+    Apply corrections for dotted Arabic letter confusion.
+
+    Arabic letters with similar base shapes but different dot positions
+    are commonly confused by OCR. This function corrects these errors.
+
+    Handles confusions between:
+    - ب ↔ ت ↔ ث ↔ ن ↔ ي (similar base shape with different dots)
+    - ج ↔ ح ↔ خ (jim/ha/kha group)
+    - ف ↔ ق (fa/qaf)
+    - ص ↔ ض (sad/dad)
+    - س ↔ ش (sin/shin)
+    - د ↔ ذ (dal/dhal)
+    - ر ↔ ز (ra/zain)
+    - ط ↔ ظ (ta/dha)
+    - ع ↔ غ (ain/ghain)
+
+    Args:
+        text: Text with potential dotted letter errors
+
+    Returns:
+        Corrected text
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # Sort by length (longest first) to avoid partial replacements
+    sorted_corrections = sorted(
+        ARABIC_DOTTED_LETTER_CORRECTIONS.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    )
+
+    for wrong, correct in sorted_corrections:
+        # Skip if same (identity mappings like 'Keep correct')
+        if wrong == correct:
+            continue
+        if wrong in result:
+            result = result.replace(wrong, correct)
+
+    return result
+
+
 def apply_extended_corrections(text: str) -> str:
     """
     Apply extended OCR corrections for remaining errors.
@@ -1197,6 +1463,10 @@ def apply_extended_corrections(text: str) -> str:
 
     result = text
 
+    # First apply dotted letter corrections
+    result = apply_dotted_letter_corrections(result)
+
+    # Then apply other extended corrections
     # Sort by length (longest first) to avoid partial replacements
     sorted_corrections = sorted(
         ARABIC_OCR_CORRECTIONS_EXTENDED.items(),
@@ -1274,6 +1544,137 @@ def context_aware_reconstruction(text: str) -> str:
     # parts of words like فاتورة الى and causing corruption
 
     return result.strip()
+
+
+# ============================================
+# WORD BOUNDARY RESTORATION PATTERNS
+# ============================================
+# These patterns detect truncated words based on what comes before/after
+# and restore them to their complete forms.
+# Format: (regex_pattern, replacement, description)
+
+WORD_BOUNDARY_PATTERNS = [
+    # ============================================
+    # Truncated words near dates
+    # ============================================
+    # Pattern: truncated word before date pattern (e.g., "2/26/2022")
+    (r'\bة\s+ا\s+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s+Due\s+date\b',
+     r'تاريخ الاستحقاق \1 Due date',
+     'truncated due date before date value'),
+
+    # Pattern: truncated date terms
+    (r'\bالاستحقا\b', r'الاستحقاق', 'truncated due'),
+    (r'\bاستحقا\b', r'استحقاق', 'truncated due without al'),
+    (r'\bتاري\b', r'تاريخ', 'truncated date'),
+    (r'\bالتاري\b', r'التاريخ', 'truncated the date'),
+
+    # ============================================
+    # Truncated words near English labels
+    # ============================================
+    # Pattern: single Arabic char before English "Phone"
+    (r'(?:^|\s)([ي])\s+Phone\b',
+     r' رقم التليفون Phone',
+     'single ya before Phone'),
+
+    # Pattern: single Arabic char before English "Email"
+    (r'(?:^|\s)([ي])\s+Email\b',
+     r' البريد الالكتروني Email',
+     'single ya before Email'),
+
+    # Pattern: truncated word before "Tax No."
+    (r'(?:^|\s)([يب])\s+Tax\s+No\.',
+     r' الرقم الضريبي Tax No.',
+     'single char before Tax No.'),
+
+    # ============================================
+    # Truncated words near numbers
+    # ============================================
+    # Pattern: truncated phone label near long number
+    (r'(?:^|\s)ي\s+(\d{7,})',
+     r' رقم التليفون \1',
+     'single ya before phone number'),
+
+    # Pattern: truncated tax number label near 15-digit number
+    (r'(?:^|\s)([يب])\s+(\d{15})',
+     r' الرقم الضريبي \2',
+     'single char before 15-digit tax number'),
+
+    # ============================================
+    # Truncated compound terms
+    # ============================================
+    # Pattern: truncated bank account number term
+    (r'\bالحساب\s+البك\b', r'الحساب البنكي', 'truncated bank account'),
+    (r'\bرقم\s+الحسا\b', r'رقم الحساب', 'truncated account number'),
+
+    # Pattern: truncated payment method term
+    (r'\bطريقة\s+الدف\b', r'طريقة الدفع', 'truncated payment method'),
+    (r'\bحالة\s+الدف\b', r'حالة الدفع', 'truncated payment status'),
+
+    # Pattern: truncated email term
+    (r'\bالالكترو\b', r'الالكتروني', 'truncated electronic'),
+    (r'\bالكترو\b', r'الالكتروني', 'truncated electronic 2'),
+
+    # Pattern: truncated telephone term
+    (r'\bالتليفو\b', r'التليفون', 'truncated telephone'),
+    (r'\bتليفو\b', r'تليفون', 'truncated telephone 2'),
+
+    # ============================================
+    # Missing first letter restoration
+    # ============================================
+    # Common first letters that get lost: ر، ف، ت، م، س، ط
+    (r'\bقم\s+الفاتورة\b', r'رقم الفاتورة', 'missing ر in invoice number'),
+    (r'\bقم\s+التليفون\b', r'رقم التليفون', 'missing ر in phone number'),
+    (r'\bقم\s+الضريبي\b', r'رقم الضريبي', 'missing ر in tax number'),
+    (r'\bاتورة\s+ضريبية\b', r'فاتورة ضريبية', 'missing ف in tax invoice'),
+    (r'\bاتورة\s+الى\b', r'فاتورة الى', 'missing ف in bill to'),
+
+    # ============================================
+    # Missing ال prefix (the) restoration
+    # ============================================
+    (r'\bصنف\b(?!\s+ال)', r'الصنف', 'missing ال in item'),
+    (r'\bكمية\b(?!\s+ال)', r'الكمية', 'missing ال in quantity'),
+    (r'\bضريبة\b(?!\s+ال)', r'الضريبة', 'missing ال in tax'),
+    (r'\bاجمالي\b(?!\s+ال)', r'الاجمالي', 'missing ال in total'),
+    (r'\bمجموع\b(?!\s+ال)', r'المجموع', 'missing ال in sum'),
+
+    # ============================================
+    # End truncation restoration
+    # ============================================
+    (r'\bالضريب\b', r'الضريبي', 'truncated tax adjective'),
+    # NOTE: البنك is valid on its own, don't add ي suffix
+    # (r'\bالبنك\b', r'البنكي', 'truncated banking - NOT applied, البنك is valid'),
+    (r'\bالفرع\b', r'الفرعي', 'truncated subtotal'),
+    (r'\bالاجمال\b', r'الاجمالي', 'truncated total'),
+    (r'\bالالكترون\b', r'الالكتروني', 'truncated electronic'),
+]
+
+
+def apply_word_boundary_restoration(text: str) -> str:
+    """
+    Apply word boundary restoration to fix truncated Arabic words.
+
+    Uses contextual patterns to detect and restore words that have been
+    truncated at the beginning, middle, or end.
+
+    Args:
+        text: Text with potentially truncated words
+
+    Returns:
+        Text with restored word boundaries
+    """
+    if not text:
+        return text
+
+    result = text
+
+    for pattern, replacement, _ in WORD_BOUNDARY_PATTERNS:
+        try:
+            result = re.sub(pattern, replacement, result)
+        except re.error:
+            # Skip invalid patterns
+            continue
+
+    return result
 
 
 def restore_arabic_prefixes(text: str) -> str:
@@ -1387,12 +1788,14 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     1. Removes diacritics for better matching
     2. Splits merged words
     3. Applies context-aware reconstruction for severely truncated text
-    4. Applies phrase-level corrections (multi-word patterns)
-    5. Applies dictionary-based corrections (multi-pass)
-    6. Restores truncated words using vocabulary matching
-    7. Applies smart prefix restoration (avoiding wrong ال additions)
-    8. Applies fuzzy matching for remaining errors
-    9. Normalizes whitespace
+    4. Applies word boundary restoration for truncated words
+    5. Applies phrase-level corrections (multi-word patterns)
+    6. Applies dotted letter confusion corrections (ب ت ث ج ح خ ن ي)
+    7. Applies dictionary-based corrections (multi-pass)
+    8. Restores truncated words using vocabulary matching
+    9. Applies smart prefix restoration (avoiding wrong ال additions)
+    10. Applies fuzzy matching for remaining errors
+    11. Normalizes whitespace
 
     Args:
         text: Raw OCR output text
@@ -1415,29 +1818,40 @@ def advanced_arabic_ocr_correction(text: str) -> str:
     # This handles single-character fragments like 'ي' or 'ة ا'
     result = context_aware_reconstruction(result)
 
-    # Step 4: Apply phrase-level corrections BEFORE word corrections
+    # Step 4: Apply word boundary restoration for truncated words
+    # This uses contextual patterns to restore words cut off at boundaries
+    result = apply_word_boundary_restoration(result)
+
+    # Step 5: Apply phrase-level corrections BEFORE word corrections
     # This handles multi-word patterns like 'الرقم فاتورة' → 'رقم الفاتورة'
     result = apply_phrase_corrections(result)
 
-    # Step 5: Multi-pass correction (dictionary + extended + truncation)
+    # Step 6: Apply dotted letter confusion corrections early
+    # This fixes ب↔ت↔ث↔ن↔ي, ج↔ح↔خ, ف↔ق, etc.
+    result = apply_dotted_letter_corrections(result)
+
+    # Step 7: Multi-pass correction (dictionary + extended + truncation)
     result = multi_pass_correction(result, passes=3)
 
-    # Step 6: Restore truncated words
+    # Step 8: Restore truncated words
     result = restore_arabic_text(result)
 
-    # Step 7: Restore common prefixes (smart - avoids wrong ال additions)
+    # Step 9: Restore common prefixes (smart - avoids wrong ال additions)
     result = restore_arabic_prefixes(result)
 
-    # Step 8: Apply fuzzy matching for remaining errors
+    # Step 10: Apply fuzzy matching for remaining errors
     result = apply_fuzzy_arabic_correction(result, threshold=0.70)
 
-    # Step 9: Final extended corrections pass
+    # Step 11: Final extended corrections pass (includes dotted letter fixes)
     result = apply_extended_corrections(result)
 
-    # Step 10: Apply phrase corrections again (in case new patterns emerged)
+    # Step 12: Apply phrase corrections again (in case new patterns emerged)
     result = apply_phrase_corrections(result)
 
-    # Step 11: Normalize whitespace
+    # Step 13: Final word boundary restoration pass
+    result = apply_word_boundary_restoration(result)
+
+    # Step 14: Normalize whitespace
     result = normalize_whitespace(result)
 
     return result
