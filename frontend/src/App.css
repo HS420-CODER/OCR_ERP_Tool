@@ -36,6 +36,26 @@ body {
 .header p {
   color: #aaa;
   font-size: 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.feature-badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.feature-badge {
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 212, 255, 0.15);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: #00d4ff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .main {

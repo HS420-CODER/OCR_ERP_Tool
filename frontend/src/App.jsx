@@ -132,7 +132,12 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>OCR Tool for ERP</h1>
-        <p>Extract text from images and PDFs using PaddleOCR</p>
+        <p>Extract text from images and PDFs with Arabic text enhancement</p>
+        <div className="feature-badges">
+          <span className="feature-badge">PaddleOCR PP-OCRv5</span>
+          <span className="feature-badge">Arabic Word Separation</span>
+          <span className="feature-badge">Number Validation</span>
+        </div>
       </header>
 
       <main className="main">
@@ -246,11 +251,13 @@ function App() {
             </div>
 
             <div className="result-stats">
-              <span>Type: {result.type?.toUpperCase() || 'UNKNOWN'}</span>
-              {result.total_pages && <span>Pages: {result.processed_pages}/{result.total_pages}</span>}
+              <span>Type: {result.file_type?.toUpperCase() || 'UNKNOWN'}</span>
+              <span>Engine: {result.engine_used || 'paddle'}</span>
+              <span>Pages: {result.pages?.length || 1}</span>
               <span>
-                Text Blocks: {result.pages.reduce((sum, p) => sum + p.text_blocks.length, 0)}
+                Text Blocks: {result.pages?.reduce((sum, p) => sum + (p.text_blocks?.length || 0), 0) || 0}
               </span>
+              <span>Time: {result.processing_time_ms?.toFixed(0) || 0}ms</span>
             </div>
 
             {viewMode === 'structured' && structuredResult ? (
@@ -361,7 +368,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <p>Powered by PaddleOCR | Supports English & Arabic</p>
+        <p>Powered by PaddleOCR PP-OCRv5 | Enhanced Arabic Processing | EAN-13 Validation</p>
       </footer>
     </div>
   )
