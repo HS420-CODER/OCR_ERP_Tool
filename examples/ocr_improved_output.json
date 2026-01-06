@@ -1,0 +1,172 @@
+{
+  "success": true,
+  "engine": "paddle",
+  "processing_time_ms": 20631.938099861145,
+  "text_blocks": [
+    {
+      "text": "demo_faten2",
+      "confidence": 0.9991
+    },
+    {
+      "text": "فاتورة شراء",
+      "confidence": 0.9727
+    },
+    {
+      "text": "مصنع اغذية الخليج للتموين",
+      "confidence": 0.9356
+    },
+    {
+      "text": "demo_faten2",
+      "confidence": 0.9991
+    },
+    {
+      "text": "الرقم المرجعي",
+      "confidence": 0.8559
+    },
+    {
+      "text": "المعرض",
+      "confidence": 0.9972
+    },
+    {
+      "text": "التاريخ: 03/01/2026 12: 30",
+      "confidence": 0.9393
+    },
+    {
+      "text": "الدمام المنطقة الشركة",
+      "confidence": 0.9576
+    },
+    {
+      "text": "Address, City",
+      "confidence": 0.9994
+    },
+    {
+      "text": "الحالة: تم المستلم",
+      "confidence": 0.871
+    },
+    {
+      "text": "Saudi Arabia",
+      "confidence": 0.9961
+    },
+    {
+      "text": "حالة الدفع آجل",
+      "confidence": 0.8834
+    },
+    {
+      "text": "الرقم الضريبيالهاتف 94",
+      "confidence": 0.8041
+    },
+    {
+      "text": "الهاتف 134",
+      "confidence": 0.8745
+    },
+    {
+      "text": "البريد الإلكتروني",
+      "confidence": 0.9247
+    },
+    {
+      "text": "smartlives@smartlives.ws البريد الإلكتروني",
+      "confidence": 0.9387
+    },
+    {
+      "text": "الوصف",
+      "confidence": 0.9901
+    },
+    {
+      "text": "الكمية",
+      "confidence": 0.9335
+    },
+    {
+      "text": "تكلفة الوحدة",
+      "confidence": 0.9946
+    },
+    {
+      "text": "الضريبة",
+      "confidence": 0.9644
+    },
+    {
+      "text": "المجموع",
+      "confidence": 0.9967
+    },
+    {
+      "text": "برونتو كوكيز بقطع الشوكولاتةج",
+      "confidence": 0.7955
+    },
+    {
+      "text": "018.00",
+      "confidence": 0.9993
+    },
+    {
+      "text": "03.37",
+      "confidence": 0.9997
+    },
+    {
+      "text": "(15) 7.92",
+      "confidence": 0.9955
+    },
+    {
+      "text": "060.72",
+      "confidence": 0.9998
+    },
+    {
+      "text": "6287003972716 - خواتم",
+      "confidence": 0.9877
+    },
+    {
+      "text": "012.00",
+      "confidence": 0.9992
+    },
+    {
+      "text": "04.26",
+      "confidence": 0.997
+    },
+    {
+      "text": "(15) 6.66",
+      "confidence": 0.9829
+    },
+    {
+      "text": "051.06",
+      "confidence": 0.9991
+    },
+    {
+      "text": "المجموع",
+      "confidence": 0.9573
+    },
+    {
+      "text": "014.58",
+      "confidence": 0.9999
+    },
+    {
+      "text": "011.78",
+      "confidence": 0.9609
+    },
+    {
+      "text": "إجمالي المبلغ",
+      "confidence": 0.9336
+    },
+    {
+      "text": "011.78",
+      "confidence": 0.9945
+    },
+    {
+      "text": "(SAR) مدفوع",
+      "confidence": 0.895
+    },
+    {
+      "text": "00.00",
+      "confidence": 0.9856
+    },
+    {
+      "text": "الرصيد",
+      "confidence": 0.9319
+    },
+    {
+      "text": "11.78",
+      "confidence": 0.9991
+    },
+    {
+      "text": "Icaبl هuner : طةwlوu شاء",
+      "confidence": 0.6871
+    }
+  ],
+  "full_text": "demo_faten2 فاتورة شراء مصنع اغذية الخليج للتموين demo_faten2 الرقم الفرعي المعرض التاريخ 03/01/2026 12: 30 الدمام المنطقة الشركة Address, City الحالة: تم المستلم Saudi Arabia حالة الدفع آجل الرقم الضريبيالهاتف 94 الهاتف 134 البريد الالكتروني smartlives@smartlives.ws البريد الالكتروني الوصف الكمية تكلفة الوحدة الضريبة المجموع برونتو كوكيز بقطع الشوكولاتةج 018.00 03.37 (15) 7.92 060.72 6287003972716 - خواتم 012.00 04.26 (15) 6.66 051.06 المجموع 014.58 011.78 اجمالي المبلغ 011.78 (SAR) مدفوع 00.00 الرصيد 11.78 Icaبl هuner : طةwlوu شاء"
+}

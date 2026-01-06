@@ -256,15 +256,10 @@ class PaddleEngine(BaseEngine):
                 # Get language-specific OCR parameters
                 ocr_params = self._get_ocr_params(lang)
 
-                # Run OCR with optimized parameters for Arabic accuracy
-                # Note: Only text_det_limit_side_len and text_rec_score_thresh are
-                # reliably supported in the predict() method. Other detection params
-                # may cause RuntimeError in some PaddleOCR versions.
-                result = ocr.predict(
-                    input=processed_image,
-                    text_det_limit_side_len=ocr_params.get("text_det_limit_side_len", 960),
-                    text_rec_score_thresh=ocr_params.get("text_rec_score_thresh", 0.5),
-                )
+                # Run OCR - parameters are configured at engine initialization
+                # Note: Passing parameters to predict() can cause RuntimeError
+                # in some PaddleOCR versions, so we use defaults from init.
+                result = ocr.predict(input=processed_image)
 
             # Parse OCR result with RTL support for Arabic
             pages = []
@@ -400,13 +395,10 @@ class PaddleEngine(BaseEngine):
                     if lang == "ar":
                         img_array = self._preprocess_pdf_page(img_array)
 
-                    # Run OCR with optimized parameters (locked for thread safety)
+                    # Run OCR (locked for thread safety)
+                    # Parameters configured at engine init to avoid RuntimeError
                     with self._ocr_lock:
-                        result = ocr.predict(
-                            input=img_array,
-                            text_det_limit_side_len=ocr_params.get("text_det_limit_side_len", 960),
-                            text_rec_score_thresh=ocr_params.get("text_rec_score_thresh", 0.5),
-                        )
+                        result = ocr.predict(input=img_array)
 
                     page_data = {
                         'text_blocks': [],
@@ -571,6 +563,20 @@ class PaddleEngine(BaseEngine):
                     block['text'] = advanced_arabic_ocr_correction(block['text'])
             except ImportError:
                 pass  # Corrections not available, use raw text
+
+            # Apply enhanced Arabic text processing (word separation, spelling)
+            try:
+                from ..utils.arabic_enhancer import ArabicTextEnhancer
+                raw_blocks = ArabicTextEnhancer.enhance_text_blocks(raw_blocks)
+            except ImportError:
+                pass  # Enhanced processing not available
+
+            # Apply number validation and digit restoration
+            try:
+                from ..validators.number_validator import NumberValidator
+                raw_blocks = NumberValidator.enhance_text_block_numbers(raw_blocks)
+            except ImportError:
+                pass  # Number validation not available
 
         # Convert to TextBlock objects
         text_blocks = [
