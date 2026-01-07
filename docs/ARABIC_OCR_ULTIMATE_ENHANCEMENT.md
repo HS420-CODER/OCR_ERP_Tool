@@ -5166,6 +5166,16 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 
 ## Appendix C: Version Changelog
 
+### Version 5.4 (Implementation Plan Edition) - January 2026
+- **ADDED**: Appendix D - Comprehensive Implementation Plan (Phases 7-11)
+- **DEFINED**: 8 new files to implement (engines, ML, utils, config)
+- **DETAILED**: Qari-OCR, EasyOCR, and Fusion engine specifications
+- **SPECIFIED**: Arabic confusion matrix with 15+ letter groups and probabilities
+- **DESIGNED**: N-gram language model with 20+ common trigrams
+- **PLANNED**: Beam search corrector, morphological analyzer, BPE tokenizer
+- **DOCUMENTED**: File structure, dependencies, and critical path
+- **ESTABLISHED**: Success criteria (CER targets: <0.06 AR, <0.02 EN, <0.08 Mixed)
+
 ### Version 5.3 (Production-Ready Bilingual Edition) - January 2026
 - **ADDED**: Critical PaddleOCR Arabic parameters (`text_det_unclip_ratio=1.8`, `text_det_limit_side_len=1280`)
 - **CLARIFIED**: Qari-OCR version selection guide (v0.2.2.1 for printed, v0.3 for handwritten)
@@ -5212,11 +5222,415 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 
 ---
 
+## Appendix D: Implementation Plan
+
+> **Status:** Approved - Ready for Implementation
+> **Target:** CER <0.06 (Arabic), <0.02 (English), <0.08 (Mixed)
+
+### D.1 Current State Analysis
+
+#### Already Implemented (Stages 1-6):
+| Stage | Component | Status |
+|-------|-----------|--------|
+| 1 | PaddleOCR PP-OCRv5 optimization with multi-pass Arabic OCR | ✅ Complete |
+| 2 | Arabic post-processing (word separator, spell checker, number normalizer) | ✅ Complete |
+| 3 | Document structure (layout engine, table engine, reading order) | ✅ Complete |
+| 4 | Output formatting (bilingual formatter, JSON schema) | ✅ Complete |
+| 5 | Quality validation (invoice validator, confidence scorer) | ✅ Complete |
+| 6 | ML enhancement + template learning | ✅ Complete |
+
+#### Not Yet Implemented (Phases 7+):
+1. Qari-OCR Engine (SOTA Arabic - CER 0.059)
+2. EasyOCR Engine wrapper (bilingual AR/EN)
+3. Multi-engine Fusion with character-level voting
+4. Advanced Arabic confusion matrix with probabilities
+5. Character-level beam search corrector
+6. N-gram language model for Arabic
+7. Arabic morphological analyzer
+8. BPE tokenizer for Arabic
+
+---
+
+### D.2 Phase 7: New OCR Engine Integration (HIGH Priority)
+
+#### 7.1 Qari-OCR Engine (SOTA Arabic)
+**File:** `src/engines/qari_ocr_engine.py`
+
+```python
+class QariOCREngine(BaseEngine):
+    """
+    SOTA Arabic OCR using Qari-OCR v0.2.2.1 (CER 0.059)
+    CRITICAL: Use 8-bit quantization only! 4-bit destroys accuracy.
+    """
+    MODEL_NAME = "NAMAA-Space/Qari-OCR-0.2.2.1-VL-2B-Instruct"
+
+    def __init__(self, use_8bit: bool = True):
+        # MUST use 8-bit (4-bit CER: 3.452 vs 0.059)
+        pass
+
+    def process_image(self, image_path, lang="ar") -> ReadResult:
+        pass
+
+    def is_available(self) -> bool:
+        pass
+```
+
+**Key Points:**
+- Model: Qwen2-VL-2B fine-tuned on 50,000 Arabic samples
+- Use v0.2.2.1 for printed text, v0.3 for handwritten
+- Requires: `transformers`, `torch`, `bitsandbytes`
+
+#### 7.2 EasyOCR Engine (Bilingual AR/EN)
+**File:** `src/engines/easyocr_engine.py`
+
+```python
+class EasyOCREngine(BaseEngine):
+    """
+    Bilingual Arabic+English OCR using EasyOCR.
+    Best for mixed documents. CER: ~0.15 (clean), ~0.79 (diacritized)
+    """
+    def __init__(self, gpu: bool = True):
+        self.reader = easyocr.Reader(['ar', 'en'], gpu=gpu)
+
+    def process_image(self, image_path, lang) -> ReadResult:
+        pass
+```
+
+**Parameters:** `text_threshold=0.7`, `link_threshold=0.4`, `mag_ratio=1.5`
+
+#### 7.3 Engine Manager Updates
+**File:** `src/engine_manager.py`
+
+```python
+# Register new engines
+self.register_engine_class("qari", QariOCREngine)
+self.register_engine_class("easyocr", EasyOCREngine)
+```
+
+---
+
+### D.3 Phase 8: Advanced Arabic Correction (HIGH Priority)
+
+#### 8.1 Probability-Weighted Confusion Matrix
+**File:** `src/ml/arabic_confusion_matrix.py`
+
+```python
+class ArabicConfusionMatrix:
+    """
+    Extended confusion matrix with empirically-derived probabilities.
+    Based on 10,000+ Arabic OCR errors.
+    """
+    CONFUSION_MATRIX = {
+        'ب': [('ت', 0.35), ('ث', 0.25), ('ن', 0.20), ('ي', 0.15)],
+        'ت': [('ب', 0.30), ('ث', 0.30), ('ن', 0.25)],
+        'ث': [('ت', 0.35), ('ب', 0.35), ('ن', 0.20)],
+        'ن': [('ب', 0.25), ('ت', 0.25), ('ث', 0.25), ('ي', 0.15)],
+        'ي': [('ى', 0.40), ('ب', 0.20), ('ن', 0.20)],
+        'ى': [('ي', 0.50), ('ا', 0.30)],
+        'ا': [('ل', 0.25), ('أ', 0.25), ('إ', 0.25), ('آ', 0.15)],
+        'أ': [('ا', 0.40), ('إ', 0.35), ('آ', 0.20)],
+        'إ': [('أ', 0.40), ('ا', 0.35), ('آ', 0.20)],
+        'آ': [('ا', 0.40), ('أ', 0.30), ('إ', 0.25)],
+        'ه': [('ة', 0.50), ('ھ', 0.30)],
+        'ة': [('ه', 0.50), ('ت', 0.30)],
+        'ر': [('ز', 0.50), ('و', 0.30)],
+        'ز': [('ر', 0.50), ('و', 0.25)],
+        'و': [('ر', 0.25), ('ز', 0.20), ('ؤ', 0.25)],
+    }
+
+    def get_candidates(self, char: str, context: str, position: int) -> List[Tuple[str, float]]:
+        pass
+```
+
+#### 8.2 N-gram Language Model
+**File:** `src/ml/arabic_ngram_model.py`
+
+```python
+class ArabicNGramModel:
+    """Character-level trigram model for Arabic."""
+    COMMON_TRIGRAMS = {
+        'ال ': 0.15, 'لا ': 0.08, ' ال': 0.12, 'ية ': 0.06,
+        'في ': 0.05, 'من ': 0.05, 'على': 0.04, 'إلى': 0.04,
+        'ان ': 0.04, 'ون ': 0.03, 'ات ': 0.03, 'لل ': 0.03,
+        'مة ': 0.02, 'هذا': 0.02, 'وال': 0.02, 'بال': 0.02,
+        'كان': 0.02, 'عن ': 0.02, 'له ': 0.02, 'ما ': 0.02,
+    }
+
+    RARE_TRIGRAMS = {
+        'ءء': -0.5, 'ىى': -0.5, 'ؤؤ': -0.5, 'ئئ': -0.5,
+        'ةة': -0.5, '  ': -0.3, 'اا': -0.3,
+    }
+
+    def score_trigram(self, trigram: str) -> float:
+        """Range [0.1, 2.0]"""
+        pass
+
+    def score_word(self, word: str) -> float:
+        pass
+```
+
+#### 8.3 Character-Level Beam Search Corrector
+**File:** `src/ml/arabic_beam_corrector.py`
+
+```python
+class ArabicBeamCorrector:
+    """
+    Beam search corrector using confusion matrix + n-gram scoring.
+    """
+    def __init__(self, beam_width: int = 5, ngram_model=None, dictionary=None):
+        self.beam_width = beam_width
+        self.ngram_model = ngram_model
+        self.dictionary = dictionary
+
+    def correct_text(self, text: str) -> Tuple[str, List[Dict]]:
+        pass
+
+    def _correct_word(self, word: str, offset: int) -> Tuple[str, List[Dict]]:
+        pass
+```
+
+**Algorithm:**
+1. For each character: keep original OR replace with confusion candidate
+2. Score: `confusion_prob × ngram_score × dictionary_bonus (1.3x)`
+3. Maintain top-k paths (beam width)
+4. Return best path
+
+---
+
+### D.4 Phase 9: Morphological Analysis (MEDIUM Priority)
+
+#### 9.1 Arabic Morphological Analyzer
+**File:** `src/utils/arabic_morphology.py`
+
+```python
+from dataclasses import dataclass
+from typing import Optional, List
+
+@dataclass
+class MorphologicalAnalysis:
+    word: str
+    root: Optional[str]      # 3-letter root
+    pattern: Optional[str]   # Arabic wazn
+    prefix: str
+    stem: str
+    suffix: str
+
+class ArabicMorphologicalAnalyzer:
+    PREFIXES = ['ال', 'و', 'ف', 'ب', 'ك', 'ل', 'لل', 'بال', 'وال', 'فال', 'كال', 'س']
+    SUFFIXES = ['ة', 'ه', 'ها', 'هم', 'هن', 'نا', 'ي', 'ك', 'كم', 'كن', 'ون', 'ين', 'ان', 'ات', 'ية', 'وا']
+
+    VERB_PATTERNS = {
+        1: 'فَعَلَ',
+        2: 'فَعَّلَ',
+        3: 'فَاعَلَ',
+        4: 'أَفْعَلَ',
+        5: 'تَفَعَّلَ',
+        6: 'تَفَاعَلَ',
+        7: 'اِنْفَعَلَ',
+        8: 'اِفْتَعَلَ',
+        9: 'اِفْعَلَّ',
+        10: 'اِسْتَفْعَلَ',
+    }
+
+    def analyze(self, word: str) -> MorphologicalAnalysis:
+        pass
+
+    def _extract_root(self, stem: str) -> Optional[str]:
+        pass
+
+    def _generate_forms(self, root: str, prefix: str, suffix: str) -> List[str]:
+        pass
+```
+
+#### 9.2 BPE Tokenizer for Unknown Words
+**File:** `src/utils/arabic_bpe_tokenizer.py`
+
+```python
+class ArabicBPETokenizer:
+    """Byte-Pair Encoding for unknown Arabic words."""
+
+    def tokenize(self, word: str) -> List[str]:
+        pass
+
+    def suggest_corrections(self, word: str) -> List[Tuple[str, float]]:
+        pass
+```
+
+---
+
+### D.5 Phase 10: Multi-Engine Fusion (HIGH Priority)
+
+#### 10.1 Advanced Fusion Engine
+**File:** `src/engines/fusion_ocr_engine.py`
+
+```python
+from dataclasses import dataclass
+from typing import Dict, List
+
+@dataclass
+class FusedWord:
+    text: str
+    confidence: float
+    sources: Dict[str, str]
+    method: str  # 'unanimous', 'majority', 'character_vote'
+
+class OCRFusionEngine:
+    ENGINE_WEIGHTS = {'qari': 1.2, 'paddle': 1.0, 'easyocr': 0.8}
+    HIGH_CONFIDENCE = 0.85
+    VLM_FALLBACK = 0.50
+
+    def fuse(self, results: List) -> 'FusionResult':
+        pass
+
+    def _character_vote(self, word_group) -> FusedWord:
+        pass
+
+    def _align_results(self, results) -> List[Dict]:
+        """Box IOU alignment"""
+        pass
+```
+
+**Fusion Algorithm:**
+```
+1. DETECT script (Arabic/English/Mixed) via Unicode
+2. SELECT primary engine:
+   - Arabic-only: Qari-OCR (CER 0.059)
+   - English-only: PaddleOCR (fastest)
+   - Mixed: EasyOCR ['ar','en']
+3. RUN primary, IF confidence < 0.85:
+   - RUN secondary engine
+   - ALIGN by bounding box (IoU > 0.5)
+   - CHARACTER-LEVEL VOTE with weights
+4. IF still < 0.50: VLM fallback
+```
+
+---
+
+### D.6 Phase 11: Production Configuration (MEDIUM Priority)
+
+#### 11.1 Mode-Based Configuration
+**File:** `config/arabic_ocr_config.py`
+
+```python
+from enum import Enum
+from dataclasses import dataclass
+
+class OCRMode(Enum):
+    FAST = "fast"        # Single engine, minimal processing
+    BALANCED = "balanced" # Primary + beam correction
+    ACCURATE = "accurate" # Multi-engine fusion
+    MAXIMUM = "maximum"   # All engines + VLM fallback
+
+@dataclass
+class ArabicOCRConfig:
+    mode: OCRMode = OCRMode.BALANCED
+    primary_engine: str = "paddle"
+    enable_easyocr: bool = False
+    enable_qari_vlm: bool = False
+    beam_width: int = 5
+    fusion_strategy: str = "character_vote"
+```
+
+---
+
+### D.7 File Structure (New Files)
+
+```
+src/
+├── engines/
+│   ├── qari_ocr_engine.py      # NEW - Phase 7
+│   ├── easyocr_engine.py       # NEW - Phase 7
+│   └── fusion_ocr_engine.py    # NEW - Phase 10
+│
+├── ml/
+│   ├── arabic_confusion_matrix.py  # NEW - Phase 8
+│   ├── arabic_ngram_model.py       # NEW - Phase 8
+│   └── arabic_beam_corrector.py    # NEW - Phase 8
+│
+├── utils/
+│   ├── arabic_morphology.py        # NEW - Phase 9
+│   └── arabic_bpe_tokenizer.py     # NEW - Phase 9
+│
+└── [UPDATE] engine_manager.py      # Register new engines
+    [UPDATE] config.py              # Add new settings
+    [UPDATE] models.py              # Add EngineType enum values
+
+config/
+└── arabic_ocr_config.py            # NEW - Phase 11
+
+data/
+├── arabic_vocabulary.txt           # NEW - ~50,000 words
+└── bpe_merges.txt                  # NEW - BPE operations
+
+models/
+└── arabic_ngrams.json              # NEW - Trigram statistics
+```
+
+---
+
+### D.8 Dependencies
+
+```
+# requirements.txt additions
+easyocr>=1.7.0
+transformers>=4.36.0
+torch>=2.0.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0  # For 8-bit quantization
+```
+
+---
+
+### D.9 Implementation Order (Critical Path)
+
+```
+Phase 7 (Engines) ────────────┐
+        │                     │
+        v                     v
+Phase 8 (Correction) ───> Phase 10 (Fusion)
+        │                     │
+        v                     │
+Phase 9 (Morphology) ─────────┤
+                              │
+                              v
+                      Phase 11 (Config)
+```
+
+**Parallel Tracks:**
+- **Track A:** Phase 7 + 10 (Engine integration + Fusion)
+- **Track B:** Phase 8 + 9 (Correction + Morphology)
+- **Final:** Phase 11 (Configuration)
+
+---
+
+### D.10 Success Criteria
+
+| Metric | Current | Target | Method |
+|--------|---------|--------|--------|
+| Arabic CER | ~0.15 | **<0.06** | Qari-OCR + Fusion |
+| English CER | ~0.02 | **<0.02** | PaddleOCR |
+| Mixed CER | ~0.12 | **<0.08** | EasyOCR + Fusion |
+| Unknown Words | ~60% | **>94%** | Morphology + BPE |
+
+---
+
+### D.11 Critical Warnings
+
+⚠️ **MUST READ BEFORE IMPLEMENTATION:**
+
+1. **Qari-OCR Quantization:** MUST use 8-bit. 4-bit destroys accuracy (CER 0.059 → 3.452)
+2. **EasyOCR Diacritics:** Poor on diacritized text (CER 0.79 vs 0.15 clean)
+3. **GPU Requirements:** Qari-OCR needs ~6GB VRAM for 8-bit inference
+4. **Version Selection:** Use Qari-OCR v0.2.2.1 for printed, v0.3 only for handwritten
+
+---
+
 # Version History
 
 | Version | Date | Changes |
 |---------|------|---------|
-| **v5.3** | Jan 2026 | **Production-Ready** - PaddleOCR Arabic config, Qari-OCR version guide, EasyOCR CRNN details |
+| **v5.4** | Jan 2026 | **Implementation Plan** - Appendix D with Phases 7-11, file structure, success criteria |
+| v5.3 | Jan 2026 | Production-Ready - PaddleOCR Arabic config, Qari-OCR version guide, EasyOCR CRNN details |
 | v5.2 | Jan 2026 | Research-Verified - consolidated sections, fixed benchmarks, fusion algorithm |
 | v5.1 | Jan 2026 | Research-Enhanced - Qari-OCR code, 8-bit warning, ALLaM-7B fix |
 | v5.0 | Jan 2026 | Streamlined EN/AR Edition - removed theoretical sections |
@@ -5224,12 +5638,12 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 
 ---
 
-**Document Statistics (v5.3):**
-- Total Lines: ~5,200 (added config params + architecture details)
-- Sections: 18 + 3 Appendices
-- Focus: Production-ready bilingual AR/EN OCR
+**Document Statistics (v5.4):**
+- Total Lines: ~5,650 (added 400+ lines for implementation plan)
+- Sections: 18 + 4 Appendices (A-D)
+- Focus: Production-ready bilingual AR/EN OCR with implementation roadmap
 - Languages: Arabic + English only
-- Key Additions: PaddleOCR Arabic params, Qari-OCR version guide, EasyOCR CRNN, enhanced benchmarks
+- Key Additions: Implementation Plan (Phases 7-11), 8 new file specifications, success criteria
 
 ---
 
