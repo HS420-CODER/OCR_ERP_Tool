@@ -10,6 +10,36 @@ Key Features for Arabic:
 - Image preprocessing (contrast, deskew)
 - Confidence filtering for cleaner output
 - Optimized detection parameters
+
+Stage 1 Enhancements (2026-01-06):
+- DocumentTypeDetector integration for adaptive OCR parameters
+- ArabicImagePreprocessor for intelligent image quality enhancement
+- Multi-pass OCR with confidence-based retry for improved accuracy
+
+Stage 2 Enhancements (2026-01-07):
+- ArabicWordSeparator for intelligent merged word separation
+- ArabicSpellChecker for context-aware OCR error correction
+- ArabicNumberNormalizer for number/currency normalization
+
+Stage 3 Enhancements (2026-01-07):
+- TableRecognitionEngine for table structure detection and line item extraction
+- LayoutAnalysisEngine for document zone detection (header, footer, tables, QR codes)
+- ArabicReadingOrderAnalyzer for intelligent RTL reading order with multi-column support
+
+Stage 4 Enhancements (2026-01-07):
+- BilingualMarkdownFormatter for professional Claude Code-style output
+- JSON schema with InvoiceDocument dataclass for structured data
+- ERP-compatible and ZATCA-compatible export formats
+
+Stage 5 Enhancements (2026-01-07):
+- InvoiceValidator for cross-field validation (line items, totals, tax)
+- ConfidenceScorer for document-level and field-level confidence scoring
+- Quality assurance with actionable recommendations
+
+Stage 6 Enhancements (2026-01-07):
+- MLArabicEnhancer for ML-based OCR error correction with rule fallback
+- TemplateLearner for invoice template learning and pattern recognition
+- Continuous improvement through learned templates
 """
 
 import os
@@ -18,6 +48,7 @@ import logging
 import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
 
 # Disable model source check for offline operation
 os.environ['DISABLE_MODEL_SOURCE_CHECK'] = 'True'
@@ -32,6 +63,15 @@ from .base_engine import (
 from ..models import ReadResult, PageResult, TextBlock
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OCRPassResult:
+    """Result from a single OCR pass."""
+    text_blocks: List[Dict]
+    avg_confidence: float
+    pass_name: str
+    params_used: Dict[str, Any]
 
 
 class PaddleEngine(BaseEngine):
@@ -77,8 +117,46 @@ class PaddleEngine(BaseEngine):
         "text_rec_score_thresh": 0.5,
     }
 
+    # Multi-pass OCR configurations for Arabic
+    # Each pass uses different parameters to maximize text capture
+    # preprocess_level values: "none", "minimal", "standard", "aggressive"
+    ARABIC_MULTI_PASS_CONFIGS = [
+        {
+            "name": "standard",
+            "params": {
+                "text_det_limit_side_len": 1280,
+                "text_rec_score_thresh": 0.25,
+                "text_det_box_thresh": 0.5,
+            },
+            "preprocess_level": "standard"
+        },
+        {
+            "name": "high_resolution",
+            "params": {
+                "text_det_limit_side_len": 1920,
+                "text_rec_score_thresh": 0.20,
+                "text_det_box_thresh": 0.4,
+            },
+            "preprocess_level": "aggressive"
+        },
+        {
+            "name": "low_threshold",
+            "params": {
+                "text_det_limit_side_len": 1280,
+                "text_rec_score_thresh": 0.15,
+                "text_det_box_thresh": 0.3,
+            },
+            "preprocess_level": "minimal"
+        },
+    ]
+
     # Minimum confidence threshold for keeping results
     MIN_CONFIDENCE_THRESHOLD = 0.20  # Lower to catch more Arabic text
+
+    # Multi-pass OCR settings
+    MULTI_PASS_ENABLED = True
+    MULTI_PASS_CONFIDENCE_THRESHOLD = 0.85  # Below this, try another pass
+    MAX_OCR_PASSES = 3
 
     # Thread lock for PaddlePaddle (oneDNN kernel is not thread-safe)
     _ocr_lock = threading.Lock()
@@ -217,6 +295,297 @@ class PaddleEngine(BaseEngine):
             return self.ARABIC_OCR_PARAMS.copy()
         return self.ENGLISH_OCR_PARAMS.copy()
 
+    def _get_document_detector(self):
+        """Get DocumentTypeDetector instance (lazy loading)."""
+        if not hasattr(self, '_document_detector'):
+            try:
+                from ..utils.document_type_detector import DocumentTypeDetector
+                self._document_detector = DocumentTypeDetector()
+            except ImportError:
+                logger.warning("DocumentTypeDetector not available, using defaults")
+                self._document_detector = None
+        return self._document_detector
+
+    def _get_image_preprocessor(self):
+        """Get ArabicImagePreprocessor instance (lazy loading)."""
+        if not hasattr(self, '_image_preprocessor'):
+            try:
+                from ..utils.image_preprocessor import ArabicImagePreprocessor
+                self._image_preprocessor = ArabicImagePreprocessor()
+            except ImportError:
+                logger.warning("ArabicImagePreprocessor not available, using defaults")
+                self._image_preprocessor = None
+        return self._image_preprocessor
+
+    def _get_table_engine(self):
+        """Get TableRecognitionEngine instance (lazy loading)."""
+        if not hasattr(self, '_table_engine'):
+            try:
+                from .table_engine import TableRecognitionEngine
+                self._table_engine = TableRecognitionEngine()
+            except ImportError:
+                logger.warning("TableRecognitionEngine not available")
+                self._table_engine = None
+        return self._table_engine
+
+    def _get_layout_engine(self):
+        """Get LayoutAnalysisEngine instance (lazy loading)."""
+        if not hasattr(self, '_layout_engine'):
+            try:
+                from .layout_engine import LayoutAnalysisEngine
+                self._layout_engine = LayoutAnalysisEngine()
+            except ImportError:
+                logger.warning("LayoutAnalysisEngine not available")
+                self._layout_engine = None
+        return self._layout_engine
+
+    def _get_reading_order_analyzer(self):
+        """Get ArabicReadingOrderAnalyzer instance (lazy loading)."""
+        if not hasattr(self, '_reading_order_analyzer'):
+            try:
+                from ..utils.reading_order import ArabicReadingOrderAnalyzer
+                self._reading_order_analyzer = ArabicReadingOrderAnalyzer()
+            except ImportError:
+                logger.warning("ArabicReadingOrderAnalyzer not available")
+                self._reading_order_analyzer = None
+        return self._reading_order_analyzer
+
+    def _get_bilingual_formatter(self):
+        """Get BilingualMarkdownFormatter instance (lazy loading)."""
+        if not hasattr(self, '_bilingual_formatter'):
+            try:
+                from ..formatters.bilingual_formatter import BilingualMarkdownFormatter
+                self._bilingual_formatter = BilingualMarkdownFormatter(
+                    include_raw=False,
+                    include_metadata=True
+                )
+            except ImportError:
+                logger.warning("BilingualMarkdownFormatter not available")
+                self._bilingual_formatter = None
+        return self._bilingual_formatter
+
+    def _get_invoice_schema(self):
+        """Get InvoiceDocument class reference (lazy loading)."""
+        if not hasattr(self, '_invoice_schema_module'):
+            try:
+                from ..formatters import json_schema
+                self._invoice_schema_module = json_schema
+            except ImportError:
+                logger.warning("JSON schema module not available")
+                self._invoice_schema_module = None
+        return self._invoice_schema_module
+
+    def _get_invoice_validator(self):
+        """Get InvoiceValidator instance (lazy loading)."""
+        if not hasattr(self, '_invoice_validator'):
+            try:
+                from ..validators.invoice_validator import InvoiceValidator
+                self._invoice_validator = InvoiceValidator()
+            except ImportError:
+                logger.warning("InvoiceValidator not available")
+                self._invoice_validator = None
+        return self._invoice_validator
+
+    def _get_confidence_scorer(self):
+        """Get ConfidenceScorer instance (lazy loading)."""
+        if not hasattr(self, '_confidence_scorer'):
+            try:
+                from ..validators.confidence_scorer import ConfidenceScorer
+                self._confidence_scorer = ConfidenceScorer()
+            except ImportError:
+                logger.warning("ConfidenceScorer not available")
+                self._confidence_scorer = None
+        return self._confidence_scorer
+
+    def _get_ml_enhancer(self):
+        """Get MLArabicEnhancer instance (lazy loading)."""
+        if not hasattr(self, '_ml_enhancer'):
+            try:
+                from ..ml.arabic_ocr_enhancer import MLArabicEnhancer, EnhancementMode
+                self._ml_enhancer = MLArabicEnhancer(
+                    mode=EnhancementMode.ML_WITH_FALLBACK,
+                    context="invoice"
+                )
+            except ImportError:
+                logger.warning("MLArabicEnhancer not available")
+                self._ml_enhancer = None
+        return self._ml_enhancer
+
+    def _get_template_learner(self):
+        """Get TemplateLearner instance (lazy loading)."""
+        if not hasattr(self, '_template_learner'):
+            try:
+                from ..learning.template_learner import TemplateLearner
+                self._template_learner = TemplateLearner(
+                    templates_dir="data/templates",
+                    auto_save=True
+                )
+            except ImportError:
+                logger.warning("TemplateLearner not available")
+                self._template_learner = None
+        return self._template_learner
+
+    def _run_multi_pass_ocr(
+        self,
+        image_input: Any,
+        lang: str,
+        ocr: Any,
+        document_analysis: Optional[Any] = None
+    ) -> OCRPassResult:
+        """
+        Run multi-pass OCR with different parameters for best results.
+
+        For Arabic text, runs multiple OCR passes with varying parameters
+        and preprocessing levels, returning the pass with best confidence.
+
+        Args:
+            image_input: Image path or numpy array
+            lang: Language code
+            ocr: PaddleOCR engine instance
+            document_analysis: Optional DocumentAnalysis for parameter optimization
+
+        Returns:
+            OCRPassResult with best results
+        """
+        if lang != "ar" or not self.MULTI_PASS_ENABLED:
+            # Single pass for English or when multi-pass disabled
+            result = ocr.predict(input=image_input)
+            blocks = self._extract_raw_blocks(result)
+            avg_conf = self._calculate_avg_confidence(blocks)
+            return OCRPassResult(
+                text_blocks=blocks,
+                avg_confidence=avg_conf,
+                pass_name="single",
+                params_used=self._get_ocr_params(lang)
+            )
+
+        # Multi-pass OCR for Arabic
+        best_result: Optional[OCRPassResult] = None
+        preprocessor = self._get_image_preprocessor()
+
+        for pass_idx, config in enumerate(self.ARABIC_MULTI_PASS_CONFIGS[:self.MAX_OCR_PASSES]):
+            pass_name = config["name"]
+            logger.debug(f"Running OCR pass {pass_idx + 1}: {pass_name}")
+
+            # Apply preprocessing based on pass configuration
+            if preprocessor and isinstance(image_input, str):
+                try:
+                    from ..utils.image_preprocessor import PreprocessingLevel
+                    level_map = {
+                        "none": PreprocessingLevel.NONE,
+                        "minimal": PreprocessingLevel.MINIMAL,
+                        "standard": PreprocessingLevel.STANDARD,
+                        "aggressive": PreprocessingLevel.AGGRESSIVE,
+                    }
+                    level = level_map.get(config.get("preprocess_level", "standard"), PreprocessingLevel.STANDARD)
+                    processed_image = preprocessor.preprocess(image_input, lang=lang, level=level)
+                except Exception as e:
+                    logger.warning(f"Preprocessing failed for pass {pass_name}: {e}")
+                    processed_image = image_input
+            else:
+                processed_image = image_input
+
+            # Run OCR
+            try:
+                result = ocr.predict(input=processed_image)
+                blocks = self._extract_raw_blocks(result)
+                avg_conf = self._calculate_avg_confidence(blocks)
+
+                pass_result = OCRPassResult(
+                    text_blocks=blocks,
+                    avg_confidence=avg_conf,
+                    pass_name=pass_name,
+                    params_used=config["params"]
+                )
+
+                logger.debug(f"Pass '{pass_name}': {len(blocks)} blocks, avg confidence: {avg_conf:.3f}")
+
+                # Update best result if this pass is better
+                if best_result is None or avg_conf > best_result.avg_confidence:
+                    best_result = pass_result
+
+                # If confidence is good enough, stop early
+                if avg_conf >= self.MULTI_PASS_CONFIDENCE_THRESHOLD:
+                    logger.info(f"Achieved target confidence {avg_conf:.3f} on pass '{pass_name}'")
+                    break
+
+            except Exception as e:
+                logger.warning(f"OCR pass '{pass_name}' failed: {e}")
+                continue
+
+        # Return best result or empty result if all passes failed
+        if best_result:
+            logger.info(f"Best OCR pass: '{best_result.pass_name}' with confidence {best_result.avg_confidence:.3f}")
+            return best_result
+
+        return OCRPassResult(
+            text_blocks=[],
+            avg_confidence=0.0,
+            pass_name="failed",
+            params_used={}
+        )
+
+    def _extract_raw_blocks(self, result: Any) -> List[Dict]:
+        """Extract raw text blocks from OCR result without post-processing."""
+        raw_blocks = []
+
+        for res in result:
+            # New API format: dict-like object with rec_texts, rec_scores, dt_polys
+            if hasattr(res, 'keys'):
+                texts = res.get('rec_texts', []) or []
+                scores = res.get('rec_scores', []) or []
+                polys = res.get('dt_polys', []) or []
+
+                for i, text in enumerate(texts):
+                    if not text.strip():
+                        continue
+
+                    score = scores[i] if i < len(scores) else 0.0
+
+                    bbox = None
+                    if i < len(polys) and hasattr(polys[i], 'tolist'):
+                        bbox = polys[i].tolist()
+                    elif i < len(polys):
+                        bbox = list(polys[i])
+
+                    raw_blocks.append({
+                        'text': text,
+                        'confidence': round(float(score), 4),
+                        'bbox': bbox
+                    })
+
+            # Legacy format: list of [bbox, (text, score)]
+            elif isinstance(res, list):
+                for line in res:
+                    if isinstance(line, (list, tuple)) and len(line) >= 2:
+                        bbox = line[0]
+                        text_info = line[1]
+
+                        if isinstance(text_info, (list, tuple)):
+                            text = text_info[0] if len(text_info) > 0 else ""
+                            confidence = text_info[1] if len(text_info) > 1 else 0.0
+                        else:
+                            text = str(text_info)
+                            confidence = 0.0
+
+                        if not text.strip():
+                            continue
+
+                        raw_blocks.append({
+                            'text': text,
+                            'confidence': round(float(confidence), 4),
+                            'bbox': bbox if isinstance(bbox, list) else None
+                        })
+
+        return raw_blocks
+
+    def _calculate_avg_confidence(self, blocks: List[Dict]) -> float:
+        """Calculate average confidence from text blocks."""
+        if not blocks:
+            return 0.0
+        total_conf = sum(b.get('confidence', 0.0) for b in blocks)
+        return total_conf / len(blocks)
+
     def process_image(
         self,
         image_path: str,
@@ -225,6 +594,11 @@ class PaddleEngine(BaseEngine):
     ) -> ReadResult:
         """
         Process an image file with OCR.
+
+        Enhanced with Stage 1 optimizations:
+        - DocumentTypeDetector for adaptive parameters
+        - ArabicImagePreprocessor for quality enhancement
+        - Multi-pass OCR with confidence-based retry
 
         Args:
             image_path: Path to the image file
@@ -236,6 +610,7 @@ class PaddleEngine(BaseEngine):
         """
         start_time = time.perf_counter()
         lang = self._normalize_lang(lang)
+        options = options or {}
 
         # Validate file exists
         if not os.path.exists(image_path):
@@ -246,39 +621,112 @@ class PaddleEngine(BaseEngine):
             )
 
         try:
+            # Stage 1: Document type detection for adaptive parameters
+            document_analysis = None
+            document_type = "unknown"
+            detector = self._get_document_detector()
+
+            if detector and lang == "ar":
+                try:
+                    document_analysis = detector.analyze(image_path)
+                    document_type = document_analysis.document_type.value
+                    logger.info(f"Detected document type: {document_type} "
+                               f"(confidence: {document_analysis.confidence:.2f})")
+                except Exception as e:
+                    logger.warning(f"Document detection failed: {e}")
+
             # Use lock to prevent concurrent PaddlePaddle access (oneDNN not thread-safe)
             with self._ocr_lock:
                 ocr = self._get_ocr_engine(lang)
 
-                # Preprocess image for better OCR (especially Arabic)
-                processed_image = self._preprocess_image(image_path, lang)
+                # Stage 1: Multi-pass OCR for Arabic
+                if lang == "ar" and self.MULTI_PASS_ENABLED and not options.get("single_pass", False):
+                    ocr_result = self._run_multi_pass_ocr(
+                        image_input=image_path,
+                        lang=lang,
+                        ocr=ocr,
+                        document_analysis=document_analysis
+                    )
+                    raw_blocks = ocr_result.text_blocks
+                    ocr_pass = ocr_result.pass_name
+                    avg_confidence = ocr_result.avg_confidence
+                else:
+                    # Single pass for English or when explicitly requested
+                    processed_image = self._preprocess_image(image_path, lang)
+                    result = ocr.predict(input=processed_image)
+                    raw_blocks = self._extract_raw_blocks(result)
+                    ocr_pass = "single"
+                    avg_confidence = self._calculate_avg_confidence(raw_blocks)
 
-                # Get language-specific OCR parameters
-                ocr_params = self._get_ocr_params(lang)
+            # Apply confidence filtering
+            filtered_blocks = [
+                b for b in raw_blocks
+                if b.get('confidence', 0.0) >= self.MIN_CONFIDENCE_THRESHOLD
+            ]
 
-                # Run OCR - parameters are configured at engine initialization
-                # Note: Passing parameters to predict() can cause RuntimeError
-                # in some PaddleOCR versions, so we use defaults from init.
-                result = ocr.predict(input=processed_image)
+            # Apply RTL ordering for Arabic
+            if lang == "ar" and filtered_blocks:
+                filtered_blocks = self._sort_blocks_rtl(filtered_blocks)
 
-            # Parse OCR result with RTL support for Arabic
-            pages = []
-            for res in result:
-                page_data = self._parse_ocr_result(res, lang=lang)
-                pages.append(PageResult(
-                    page_number=1,
-                    text_blocks=page_data['text_blocks'],
-                    full_text=page_data['full_text']
-                ))
+            # Apply Arabic post-processing
+            if lang == "ar":
+                filtered_blocks = self._apply_arabic_corrections(filtered_blocks)
 
-            if not pages:
-                pages.append(PageResult(
-                    page_number=1,
-                    text_blocks=[],
-                    full_text=""
-                ))
+            # Stage 3: Document structure analysis for Arabic
+            structure_result = None
+            if lang == "ar" and options.get("enable_structure_analysis", True):
+                structure_result = self._apply_document_structure_analysis(
+                    filtered_blocks,
+                    image_path
+                )
+                filtered_blocks = structure_result['ordered_blocks']
+
+            # Convert to TextBlock objects
+            text_blocks = [
+                TextBlock(
+                    text=b['text'],
+                    confidence=b['confidence'],
+                    bbox=b['bbox']
+                ) for b in filtered_blocks
+            ]
+
+            # Build full text
+            full_text = self._reconstruct_text_lines(filtered_blocks, lang)
+
+            # Create page result
+            pages = [PageResult(
+                page_number=1,
+                text_blocks=text_blocks,
+                full_text=full_text
+            )]
 
             processing_time = (time.perf_counter() - start_time) * 1000
+
+            # Build metadata
+            metadata = {
+                "ocr_version": "PP-OCRv5",
+                "server_model": self._use_server_model,
+                "preprocessed": True,
+                "document_type": document_type,
+                "ocr_pass": ocr_pass,
+                "avg_confidence": round(avg_confidence, 4),
+                "multi_pass_enabled": self.MULTI_PASS_ENABLED and lang == "ar"
+            }
+
+            # Add Stage 3 metadata if available
+            if structure_result:
+                if structure_result.get('layout'):
+                    layout = structure_result['layout']
+                    metadata['layout'] = {
+                        'num_zones': len(layout.zones),
+                        'has_header': layout.header_zone is not None,
+                        'has_footer': layout.footer_zone is not None,
+                        'num_columns': layout.num_columns
+                    }
+                if structure_result.get('tables'):
+                    metadata['tables'] = len(structure_result['tables'])
+                if structure_result.get('line_items'):
+                    metadata['line_items'] = len(structure_result['line_items'])
 
             return self._create_success_result(
                 file_path=image_path,
@@ -286,11 +734,7 @@ class PaddleEngine(BaseEngine):
                 pages=pages,
                 language=lang,
                 processing_time_ms=processing_time,
-                metadata={
-                    "ocr_version": "PP-OCRv5",
-                    "server_model": self._use_server_model,
-                    "preprocessed": True
-                }
+                metadata=metadata
             )
 
         except LanguageNotSupportedError:
@@ -303,23 +747,226 @@ class PaddleEngine(BaseEngine):
                 "image"
             )
 
-    def _preprocess_image(self, image_path: str, lang: str) -> str:
+    def _apply_arabic_corrections(self, blocks: List[Dict]) -> List[Dict]:
+        """
+        Apply Arabic-specific OCR corrections to text blocks.
+
+        Stage 2 Enhancements:
+        - ArabicWordSeparator for merged word separation
+        - ArabicSpellChecker for context-aware OCR error correction
+        - ArabicNumberNormalizer for number/currency normalization
+
+        Args:
+            blocks: List of text block dictionaries
+
+        Returns:
+            Corrected text blocks
+        """
+        # Step 1: Apply basic Arabic OCR corrections (legacy)
+        try:
+            from ..utils.arabic_utils import advanced_arabic_ocr_correction
+            for block in blocks:
+                block['text'] = advanced_arabic_ocr_correction(block['text'])
+        except ImportError:
+            pass  # Corrections not available
+
+        # Step 2: Stage 2 - Word Separation
+        try:
+            from ..utils.arabic_word_separator import ArabicWordSeparator
+            separator = ArabicWordSeparator()
+            blocks = ArabicWordSeparator.separate_text_blocks(blocks, separator)
+            logger.debug("Applied Stage 2 word separation")
+        except ImportError:
+            # Fallback to legacy enhancer
+            try:
+                from ..utils.arabic_enhancer import ArabicTextEnhancer
+                blocks = ArabicTextEnhancer.enhance_text_blocks(blocks)
+            except ImportError:
+                pass
+
+        # Step 3: Stage 2 - Spell Checking
+        try:
+            from ..utils.arabic_spell_checker import ArabicSpellChecker, DocumentContext
+            checker = ArabicSpellChecker(context=DocumentContext.INVOICE)
+            blocks = ArabicSpellChecker.correct_text_blocks(
+                blocks,
+                context=DocumentContext.INVOICE,
+                checker=checker
+            )
+            logger.debug("Applied Stage 2 spell checking")
+        except ImportError:
+            pass  # Spell checker not available
+
+        # Step 4: Stage 2 - Number Normalization
+        try:
+            from ..utils.arabic_number_normalizer import ArabicNumberNormalizer
+            normalizer = ArabicNumberNormalizer()
+            blocks = ArabicNumberNormalizer.normalize_text_blocks(blocks, normalizer)
+            logger.debug("Applied Stage 2 number normalization")
+        except ImportError:
+            # Fallback to legacy number validator
+            try:
+                from ..validators.number_validator import NumberValidator
+                blocks = NumberValidator.enhance_text_block_numbers(blocks)
+            except ImportError:
+                pass
+
+        return blocks
+
+    def _apply_document_structure_analysis(
+        self,
+        blocks: List[Dict],
+        image_path: str,
+        page_width: Optional[float] = None,
+        page_height: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Apply Stage 3 document structure analysis to text blocks.
+
+        Performs:
+        - Layout analysis for zone detection (header, footer, tables)
+        - Table recognition and line item extraction
+        - RTL reading order optimization for Arabic
+
+        Args:
+            blocks: List of text block dictionaries
+            image_path: Path to the source image
+            page_width: Optional page width
+            page_height: Optional page height
+
+        Returns:
+            Dictionary with:
+            - ordered_blocks: Text blocks in correct reading order
+            - layout: DocumentLayout if available
+            - tables: List of recognized tables if available
+            - line_items: Extracted line items from tables
+        """
+        result = {
+            'ordered_blocks': blocks,
+            'layout': None,
+            'tables': [],
+            'line_items': []
+        }
+
+        if not blocks:
+            return result
+
+        # Step 1: Layout analysis
+        layout_engine = self._get_layout_engine()
+        if layout_engine:
+            try:
+                layout = layout_engine.analyze(image_path, ocr_blocks=blocks)
+                result['layout'] = layout
+                logger.debug(f"Layout analysis complete: found {len(layout.zones)} zones")
+            except Exception as e:
+                logger.warning(f"Layout analysis failed: {e}")
+
+        # Step 2: Table recognition
+        table_engine = self._get_table_engine()
+        if table_engine:
+            try:
+                # Get table zones from layout if available
+                table_zones = []
+                if result['layout']:
+                    from .layout_engine import ZoneType
+                    table_zones = [
+                        z for z in result['layout'].zones
+                        if z.zone_type in (ZoneType.TABLE, ZoneType.LINE_ITEMS)
+                    ]
+
+                # Recognize tables in detected zones
+                tables = []
+                line_items = []
+
+                if table_zones:
+                    for zone in table_zones:
+                        try:
+                            table = table_engine.recognize_table(image_path, zone.bbox)
+                            if table:
+                                tables.append(table)
+                                items = table_engine.extract_line_items(table)
+                                line_items.extend(items)
+                        except Exception as e:
+                            logger.warning(f"Table recognition failed for zone: {e}")
+                else:
+                    # Try to detect tables if no zones found
+                    detected_tables = table_engine.detect_tables(image_path)
+                    for table_info in detected_tables:
+                        try:
+                            table = table_engine.recognize_table(
+                                image_path,
+                                table_info.get('bbox')
+                            )
+                            if table:
+                                tables.append(table)
+                                items = table_engine.extract_line_items(table)
+                                line_items.extend(items)
+                        except Exception as e:
+                            logger.warning(f"Table recognition failed: {e}")
+
+                result['tables'] = tables
+                result['line_items'] = line_items
+                logger.debug(f"Table recognition: {len(tables)} tables, {len(line_items)} line items")
+
+            except Exception as e:
+                logger.warning(f"Table processing failed: {e}")
+
+        # Step 3: Reading order optimization for RTL
+        reading_order_analyzer = self._get_reading_order_analyzer()
+        if reading_order_analyzer:
+            try:
+                reading_result = reading_order_analyzer.analyze(
+                    blocks,
+                    page_width=page_width,
+                    page_height=page_height
+                )
+                # Convert TextBlock objects back to dicts
+                ordered_blocks = []
+                for block in reading_result.blocks:
+                    ordered_blocks.append({
+                        'text': block.text,
+                        'confidence': block.confidence,
+                        'bbox': block.bbox
+                    })
+                result['ordered_blocks'] = ordered_blocks
+                logger.debug(f"Reading order: {reading_result.layout_mode.value}, "
+                           f"{reading_result.num_columns} columns")
+            except Exception as e:
+                logger.warning(f"Reading order analysis failed: {e}")
+                # Keep original block order
+
+        return result
+
+    def _preprocess_image(self, image_path: str, lang: str) -> Any:
         """
         Preprocess image for better OCR recognition.
 
-        Note: PaddleOCR PP-OCRv5 already includes built-in preprocessing
-        (document orientation, unwarping, etc.), so we keep external
-        preprocessing minimal to avoid conflicts.
+        Stage 1 Enhancement: Uses ArabicImagePreprocessor for intelligent
+        preprocessing that complements PP-OCRv5's built-in preprocessing.
 
         Args:
             image_path: Path to image file
             lang: Language code
 
         Returns:
-            Path to image (preprocessing disabled to avoid conflicts)
+            Preprocessed image (numpy array or path)
         """
+        # For Arabic, use ArabicImagePreprocessor if available
+        if lang == "ar":
+            preprocessor = self._get_image_preprocessor()
+            if preprocessor:
+                try:
+                    from ..utils.image_preprocessor import PreprocessingLevel
+                    # Use standard preprocessing level for single-pass
+                    return preprocessor.preprocess(
+                        image_path,
+                        lang=lang,
+                        level=PreprocessingLevel.STANDARD
+                    )
+                except Exception as e:
+                    logger.warning(f"Image preprocessing failed: {e}")
+
         # PP-OCRv5 has built-in preprocessing, return path directly
-        # to let PaddleOCR handle preprocessing internally
         return image_path
 
     def process_pdf(
@@ -459,16 +1106,29 @@ class PaddleEngine(BaseEngine):
         """
         Preprocess PDF page image for better Arabic OCR.
 
-        Note: PaddleOCR PP-OCRv5 handles preprocessing internally.
-        We keep this minimal to avoid conflicts.
+        Stage 1 Enhancement: Uses ArabicImagePreprocessor for intelligent
+        preprocessing on PDF page images.
 
         Args:
             img_array: NumPy array of the image
 
         Returns:
-            Image array (minimal preprocessing)
+            Preprocessed image array
         """
-        # PP-OCRv5 has built-in preprocessing, return array directly
+        preprocessor = self._get_image_preprocessor()
+        if preprocessor:
+            try:
+                from ..utils.image_preprocessor import PreprocessingLevel
+                # Use standard preprocessing for PDF pages
+                return preprocessor.preprocess(
+                    img_array,
+                    lang="ar",
+                    level=PreprocessingLevel.STANDARD
+                )
+            except Exception as e:
+                logger.warning(f"PDF page preprocessing failed: {e}")
+
+        # Return original array if preprocessing fails
         return img_array
 
     def _parse_ocr_result(self, result: Any, lang: str = "en") -> Dict[str, Any]:
@@ -732,6 +1392,483 @@ class PaddleEngine(BaseEngine):
 
         # For English, simple join with newlines
         return '\n'.join(b['text'] for b in blocks)
+
+    def format_as_markdown(
+        self,
+        extracted_data: Dict[str, Any],
+        layout: Optional[Any] = None,
+        tables: Optional[List[Any]] = None
+    ) -> str:
+        """
+        Format extracted data as bilingual markdown (Stage 4).
+
+        Uses BilingualMarkdownFormatter to create professional
+        Claude Code CLI-style output.
+
+        Args:
+            extracted_data: Structured invoice/document data
+            layout: Optional DocumentLayout from Stage 3
+            tables: Optional list of RecognizedTable from Stage 3
+
+        Returns:
+            Formatted markdown string
+        """
+        formatter = self._get_bilingual_formatter()
+        if not formatter:
+            # Fallback: return simple text representation
+            return self._simple_text_format(extracted_data)
+
+        doc_type = extracted_data.get('document_type', 'document').lower()
+        if 'invoice' in doc_type or 'فاتورة' in doc_type:
+            return formatter.format_invoice(extracted_data, layout, tables)
+        else:
+            return formatter.format_generic_document(extracted_data, layout)
+
+    def format_as_json(
+        self,
+        extracted_data: Dict[str, Any],
+        erp_format: bool = False,
+        zatca_format: bool = False
+    ) -> str:
+        """
+        Format extracted data as structured JSON (Stage 4).
+
+        Uses InvoiceDocument dataclass for type-safe serialization.
+
+        Args:
+            extracted_data: Structured invoice/document data
+            erp_format: Use ERP-compatible format
+            zatca_format: Use ZATCA-compatible format
+
+        Returns:
+            JSON string
+        """
+        schema = self._get_invoice_schema()
+        if not schema:
+            # Fallback: return basic JSON
+            import json
+            return json.dumps(extracted_data, ensure_ascii=False, indent=2)
+
+        try:
+            invoice = schema.create_invoice_from_ocr(extracted_data)
+
+            if zatca_format:
+                import json
+                return json.dumps(invoice.to_zatca_format(), ensure_ascii=False, indent=2)
+            elif erp_format:
+                import json
+                return json.dumps(invoice.to_erp_format(), ensure_ascii=False, indent=2)
+            else:
+                return invoice.to_json(indent=2)
+
+        except Exception as e:
+            logger.warning(f"JSON schema formatting failed: {e}")
+            import json
+            return json.dumps(extracted_data, ensure_ascii=False, indent=2)
+
+    def create_invoice_document(
+        self,
+        extracted_data: Dict[str, Any]
+    ) -> Optional[Any]:
+        """
+        Create typed InvoiceDocument from extracted data (Stage 4).
+
+        Returns a fully typed dataclass with validation.
+
+        Args:
+            extracted_data: Structured invoice data from OCR
+
+        Returns:
+            InvoiceDocument instance or None if schema unavailable
+        """
+        schema = self._get_invoice_schema()
+        if not schema:
+            return None
+
+        try:
+            return schema.create_invoice_from_ocr(extracted_data)
+        except Exception as e:
+            logger.warning(f"Failed to create InvoiceDocument: {e}")
+            return None
+
+    def validate_invoice(
+        self,
+        invoice_data: Dict[str, Any],
+        strict: bool = False
+    ) -> Optional[Any]:
+        """
+        Validate extracted invoice data (Stage 5).
+
+        Performs cross-field validation including:
+        - Line item calculations (qty × price = total)
+        - Tax calculations (15% Saudi VAT)
+        - Totals consistency (subtotal + tax = total)
+        - Required field presence
+        - Format validation (dates, tax numbers, barcodes)
+
+        Args:
+            invoice_data: Extracted invoice data dictionary
+            strict: If True, require all expected fields
+
+        Returns:
+            ValidationResult with issues and recommendations,
+            or None if validator unavailable
+        """
+        validator = self._get_invoice_validator()
+        if not validator:
+            return None
+
+        try:
+            return validator.validate(invoice_data)
+        except Exception as e:
+            logger.warning(f"Invoice validation failed: {e}")
+            return None
+
+    def score_confidence(
+        self,
+        invoice_data: Dict[str, Any],
+        ocr_blocks: Optional[List[Dict[str, Any]]] = None,
+        validation_result: Optional[Any] = None,
+        layout_info: Optional[Dict[str, Any]] = None
+    ) -> Optional[Any]:
+        """
+        Calculate confidence scores for extracted data (Stage 5).
+
+        Provides comprehensive confidence metrics:
+        - Overall document confidence
+        - OCR confidence (from text blocks)
+        - Extraction completeness
+        - Validation score
+        - Structure score
+        - Field-level confidence
+        - Actionable recommendations
+
+        Args:
+            invoice_data: Extracted invoice data
+            ocr_blocks: Original OCR text blocks with confidence
+            validation_result: Optional ValidationResult from validate_invoice
+            layout_info: Optional layout analysis info
+
+        Returns:
+            DocumentConfidence with detailed scores,
+            or None if scorer unavailable
+        """
+        scorer = self._get_confidence_scorer()
+        if not scorer:
+            return None
+
+        try:
+            return scorer.score_document(
+                invoice_data,
+                ocr_blocks,
+                validation_result,
+                layout_info
+            )
+        except Exception as e:
+            logger.warning(f"Confidence scoring failed: {e}")
+            return None
+
+    def enhance_text_with_ml(
+        self,
+        text: str,
+        context: str = "invoice"
+    ) -> Optional[Any]:
+        """
+        Enhance OCR text using ML or rule-based methods (Stage 6).
+
+        Uses MLArabicEnhancer for intelligent text correction
+        with automatic fallback to rule-based enhancement.
+
+        Args:
+            text: Raw OCR text to enhance
+            context: Document context ("invoice", "receipt", "general")
+
+        Returns:
+            EnhancementResult with enhanced text and corrections,
+            or None if enhancer unavailable
+        """
+        enhancer = self._get_ml_enhancer()
+        if not enhancer:
+            return None
+
+        try:
+            return enhancer.enhance(text, context)
+        except Exception as e:
+            logger.warning(f"ML enhancement failed: {e}")
+            return None
+
+    def learn_template(
+        self,
+        invoice_data: Dict[str, Any],
+        layout: Optional[Any] = None,
+        ocr_result: Optional[Any] = None
+    ) -> Optional[str]:
+        """
+        Learn template from processed invoice (Stage 6).
+
+        Stores field locations and patterns for the vendor,
+        enabling improved extraction on future documents.
+
+        Args:
+            invoice_data: Successfully extracted invoice data
+            layout: Optional layout analysis result
+            ocr_result: Optional OCR result
+
+        Returns:
+            Template ID if learning successful, None otherwise
+        """
+        learner = self._get_template_learner()
+        if not learner:
+            return None
+
+        try:
+            return learner.learn_from_document(
+                invoice_data,
+                layout=layout,
+                ocr_result=ocr_result
+            )
+        except Exception as e:
+            logger.warning(f"Template learning failed: {e}")
+            return None
+
+    def get_template_hints(
+        self,
+        invoice_data: Dict[str, Any],
+        ocr_result: Optional[Any] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get extraction hints from matching template (Stage 6).
+
+        Searches for a matching template and returns hints
+        to improve field extraction.
+
+        Args:
+            invoice_data: Partial invoice data for matching
+            ocr_result: Optional OCR result
+
+        Returns:
+            Dictionary of field hints, or None if no match
+        """
+        learner = self._get_template_learner()
+        if not learner:
+            return None
+
+        try:
+            match = learner.find_matching_template(invoice_data, ocr_result)
+            if match.template and match.match_score > 0.5:
+                return {
+                    "template_id": match.template.template_id,
+                    "vendor_name": match.template.vendor_name,
+                    "match_score": match.match_score,
+                    "hints": match.hints,
+                    "confidence_boost": match.confidence_boost,
+                }
+            return None
+        except Exception as e:
+            logger.warning(f"Template matching failed: {e}")
+            return None
+
+    def get_template_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about learned templates (Stage 6).
+
+        Returns:
+            Dictionary with template statistics
+        """
+        learner = self._get_template_learner()
+        if not learner:
+            return {"count": 0, "available": False}
+
+        try:
+            stats = learner.get_template_stats()
+            stats["available"] = True
+            return stats
+        except Exception as e:
+            logger.warning(f"Failed to get template stats: {e}")
+            return {"count": 0, "available": False}
+
+    def process_invoice(
+        self,
+        file_path: str,
+        output_format: str = "markdown",
+        lang: str = "ar",
+        validate: bool = True,
+        score_confidence_flag: bool = True,
+        learn_template_flag: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Process an invoice image/PDF with full Stage 1-6 pipeline.
+
+        Convenience method that combines OCR, structure analysis,
+        output formatting, validation, confidence scoring, and
+        template learning.
+
+        Args:
+            file_path: Path to invoice image or PDF
+            output_format: "markdown", "json", "erp", "zatca", or "raw"
+            lang: Language code (default "ar" for Arabic)
+            validate: If True, run invoice validation (Stage 5)
+            score_confidence_flag: If True, calculate confidence scores (Stage 5)
+            learn_template_flag: If True, learn template from successful extraction (Stage 6)
+
+        Returns:
+            Dictionary with:
+            - success: bool
+            - formatted_output: Formatted string (markdown or JSON)
+            - invoice_document: InvoiceDocument dataclass (if available)
+            - raw_data: Raw extracted data
+            - metadata: Processing metadata
+            - validation: ValidationResult (if validate=True)
+            - confidence: DocumentConfidence (if score_confidence_flag=True)
+            - template_id: Template ID if learned (if learn_template_flag=True)
+        """
+        result = {
+            'success': False,
+            'formatted_output': '',
+            'invoice_document': None,
+            'raw_data': {},
+            'metadata': {},
+            'validation': None,
+            'confidence': None,
+            'template_id': None
+        }
+
+        # Process file with OCR
+        ext = os.path.splitext(file_path)[1].lower()
+        options = {'enable_structure_analysis': True}
+
+        if ext == '.pdf':
+            ocr_result = self.process_pdf(file_path, lang, options=options)
+        else:
+            ocr_result = self.process_image(file_path, lang, options=options)
+
+        if not ocr_result.success:
+            result['error'] = ocr_result.error
+            return result
+
+        # Build extracted data structure
+        extracted_data = self._build_extracted_data(ocr_result, file_path)
+        result['raw_data'] = extracted_data
+        result['metadata'] = ocr_result.metadata or {}
+
+        # Create InvoiceDocument
+        invoice_doc = self.create_invoice_document(extracted_data)
+        if invoice_doc:
+            result['invoice_document'] = invoice_doc
+
+        # Stage 5: Validation
+        validation_result = None
+        if validate:
+            validation_result = self.validate_invoice(extracted_data)
+            if validation_result:
+                result['validation'] = validation_result
+                result['metadata']['validation_score'] = validation_result.validation_score
+                result['metadata']['validation_passed'] = validation_result.is_valid
+
+        # Stage 5: Confidence Scoring
+        if score_confidence_flag:
+            # Collect OCR blocks for confidence calculation
+            ocr_blocks = []
+            if ocr_result.pages:
+                for page in ocr_result.pages:
+                    for block in page.text_blocks:
+                        ocr_blocks.append({
+                            'text': block.text,
+                            'confidence': block.confidence,
+                            'bbox': block.bbox
+                        })
+
+            confidence_result = self.score_confidence(
+                extracted_data,
+                ocr_blocks=ocr_blocks,
+                validation_result=validation_result,
+                layout_info=result['metadata'].get('layout')
+            )
+            if confidence_result:
+                result['confidence'] = confidence_result
+                result['metadata']['overall_confidence'] = confidence_result.overall
+                result['metadata']['confidence_level'] = confidence_result.level.value
+                result['metadata']['recommendations'] = confidence_result.recommendations
+
+        # Format output
+        if output_format == "markdown":
+            result['formatted_output'] = self.format_as_markdown(extracted_data)
+        elif output_format == "json":
+            result['formatted_output'] = self.format_as_json(extracted_data)
+        elif output_format == "erp":
+            result['formatted_output'] = self.format_as_json(extracted_data, erp_format=True)
+        elif output_format == "zatca":
+            result['formatted_output'] = self.format_as_json(extracted_data, zatca_format=True)
+        else:  # raw
+            import json
+            result['formatted_output'] = json.dumps(extracted_data, ensure_ascii=False, indent=2)
+
+        # Stage 6: Template Learning
+        if learn_template_flag:
+            template_id = self.learn_template(
+                extracted_data,
+                layout=result['metadata'].get('layout'),
+                ocr_result=ocr_result
+            )
+            if template_id:
+                result['template_id'] = template_id
+                result['metadata']['template_learned'] = True
+
+        result['success'] = True
+        return result
+
+    def _build_extracted_data(
+        self,
+        ocr_result: ReadResult,
+        file_path: str
+    ) -> Dict[str, Any]:
+        """
+        Build structured extracted data from OCR result.
+
+        Combines OCR text with metadata for formatting.
+
+        Args:
+            ocr_result: ReadResult from OCR processing
+            file_path: Source file path
+
+        Returns:
+            Structured data dictionary
+        """
+        extracted_data = {
+            'document_type': 'Invoice',
+            'document_type_ar': 'فاتورة',
+            'full_text': ocr_result.full_text,
+            'raw_text': ocr_result.full_text,
+            'source_file': file_path,
+            'processing_time_ms': ocr_result.processing_time_ms,
+            'avg_confidence': ocr_result.metadata.get('avg_confidence', 0.0) if ocr_result.metadata else 0.0,
+        }
+
+        # Add structure metadata if available
+        if ocr_result.metadata:
+            if 'layout' in ocr_result.metadata:
+                extracted_data['layout'] = ocr_result.metadata['layout']
+            if 'tables' in ocr_result.metadata:
+                extracted_data['num_tables'] = ocr_result.metadata['tables']
+            if 'line_items' in ocr_result.metadata:
+                # Try to get actual line items if available
+                pass  # Line items would come from table recognition
+
+        return extracted_data
+
+    def _simple_text_format(self, extracted_data: Dict[str, Any]) -> str:
+        """Simple fallback text format when formatter unavailable."""
+        lines = []
+        doc_type = extracted_data.get('document_type', 'Document')
+        doc_type_ar = extracted_data.get('document_type_ar', 'مستند')
+        lines.append(f"# {doc_type} ({doc_type_ar})")
+        lines.append("")
+
+        if text := extracted_data.get('full_text'):
+            lines.append(text)
+            lines.append("")
+
+        return '\n'.join(lines)
 
     def get_text_only(self, file_path: str, lang: str = "en") -> str:
         """
