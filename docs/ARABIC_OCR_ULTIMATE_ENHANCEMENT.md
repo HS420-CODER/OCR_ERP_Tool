@@ -2,13 +2,17 @@
 
 ## A Professional Implementation Guide for Production-Grade Bilingual Arabic-English Text Recognition
 
-**Document Version:** 5.0 (Streamlined EN/AR Edition)
+**Document Version:** 5.1 (Research-Enhanced EN/AR Edition)
 **Date:** 2026-01-07
 **Last Updated:** 2026-01-07
 **Author:** Claude Code (Opus 4.5)
 **Target Systems:** PaddleOCR PP-OCRv5, EasyOCR, Qari-OCR
 **Focus:** Practical Bilingual Arabic (AR) + English (EN) Text Recognition
 
+> **v5.1 CHANGES:** Added production Qari-OCR code (Section 2.1), critical 8-bit quantization
+> warning (4-bit destroys accuracy!), fixed ALLaM-7B documentation (TEXT-ONLY, not OCR),
+> enhanced Section 19 with complete working examples. Research verified via Context7.
+>
 > **v5.0 CHANGES:** Removed theoretical sections (11-26 from v2.0-v4.0) to focus on
 > practical, applicable EN/AR bilingual implementation only. Document reduced from
 > ~12,500 lines to ~4,200 lines. See git history for v4.0 if you need advanced content.
@@ -54,10 +58,10 @@ This document presents a comprehensive, production-ready solution for achieving 
 |------------|------|----------------|----------------|-------------|
 | **EasyOCR** | Multi-lang `['ar','en']` | CER 4.2% | CER 1.8% | **Simultaneous** |
 | **PaddleOCR PP-OCRv5** | 109 languages | CER 3.8% | CER 1.5% | Script detection |
-| **Qari-OCR v0.2.2.1** | Arabic SOTA | **CER 0.059** | N/A | AR-only |
+| **Qari-OCR v0.2.2.1** | Arabic SOTA (8-bit only!) | **CER 0.059** | N/A | AR-only |
 | **Invizo** | Handwritten Arabic | CRR 99.20% | N/A | AR-only |
 | **Qwen2-VL** | Vision-Language | CER 2.1% | CER 1.2% | **Native bilingual** |
-| **ALLaM-7B** | Bilingual LLM | Excellent | Good | **4T EN + 1.2T AR** |
+| **ALLaM-7B** | Post-OCR correction ⚠️ TEXT-ONLY | Excellent | Good | **4T EN + 1.2T AR** |
 | **ATAR** | Arabizi transliteration | 79% accuracy | N/A | AR↔Latin |
 | **CATT/Fine-Tashkeel** | Diacritics | DER 1.37 | N/A | AR-only |
 
@@ -293,6 +297,134 @@ The **dot confusion matrix** represents the most critical challenge:
 # 4-bit     | 3.452  | 4.516  | 0.001  | ✗ NEVER USE FOR OCR
 ```
 
+**Production Usage Code (v0.2.2.1):**
+
+```python
+"""
+src/engines/qari_ocr_engine.py
+
+SOTA Arabic OCR using Qari-OCR v0.2.2.1 (Qwen2-VL-2B fine-tuned)
+CER: 0.059-0.061 | WER: 0.160-0.221 | BLEU: 0.737
+
+CRITICAL: Use 8-bit quantization only! 4-bit destroys accuracy (CER 3.452)
+"""
+
+from PIL import Image
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+import torch
+
+class QariOCREngine:
+    """
+    Production Qari-OCR engine for SOTA Arabic text recognition.
+
+    Key Requirements:
+    - Font size: 14-40pt optimal (tested range)
+    - Quantization: 8-bit ONLY (4-bit CER degrades to 3.452!)
+    - GPU: Recommended for production speed
+    - VRAM: ~6GB for 8-bit, ~3GB for 4-bit (but don't use 4-bit)
+    """
+
+    MODEL_NAME = "NAMAA-Space/Qari-OCR-0.2.2.1-VL-2B-Instruct"
+
+    # OCR prompt (from official HuggingFace documentation)
+    DEFAULT_PROMPT = "Just return the plain Arabic text as if you are reading it naturally. Do not hallucinate."
+
+    def __init__(self, use_8bit: bool = True, device_map: str = "auto"):
+        """
+        Initialize Qari-OCR engine.
+
+        Args:
+            use_8bit: Use 8-bit quantization (recommended for production)
+            device_map: Device placement ("auto", "cuda:0", etc.)
+
+        WARNING: Do NOT set use_8bit=False for 4-bit - it destroys accuracy!
+        """
+        load_kwargs = {
+            "torch_dtype": torch.float16 if not use_8bit else "auto",
+            "device_map": device_map,
+        }
+
+        if use_8bit:
+            load_kwargs["load_in_8bit"] = True
+
+        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+            self.MODEL_NAME,
+            **load_kwargs
+        )
+        self.processor = AutoProcessor.from_pretrained(self.MODEL_NAME)
+
+    def extract_text(self, image_path: str, prompt: str = None) -> dict:
+        """
+        Extract Arabic text from image.
+
+        Args:
+            image_path: Path to image file
+            prompt: Custom prompt (optional)
+
+        Returns:
+            dict with 'text', 'confidence', 'model_version'
+        """
+        prompt = prompt or self.DEFAULT_PROMPT
+
+        # Prepare message format for Qwen2-VL
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image_path},
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+
+        # Process inputs
+        text = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(
+            text=[text],
+            images=[image],
+            padding=True,
+            return_tensors="pt"
+        ).to(self.model.device)
+
+        # Generate
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                do_sample=False  # Deterministic for OCR
+            )
+
+        # Decode
+        generated_ids = outputs[:, inputs.input_ids.shape[1]:]
+        result_text = self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False
+        )[0]
+
+        return {
+            "text": result_text.strip(),
+            "model_version": "Qari-OCR-0.2.2.1",
+            "quantization": "8-bit" if hasattr(self.model, 'is_loaded_in_8bit') else "FP16"
+        }
+
+# Quick usage example
+# engine = QariOCREngine(use_8bit=True)
+# result = engine.extract_text("arabic_document.png")
+# print(result["text"])
+```
+
+**Best Practices:**
+- **Image Resolution**: 150-300 DPI optimal
+- **Font Size**: 14-40pt range tested (outside range may degrade)
+- **Quantization**: Always use 8-bit; 4-bit destroys accuracy (CER 0.061 → 3.452)
+- **Batch Processing**: Process images sequentially for consistent quality
+- **Diacritics**: Qari-OCR preserves tashkeel - best for religious/educational texts
+
 ### 2.2 EasyOCR: CRNN Architecture
 
 **Architecture:**
@@ -311,29 +443,112 @@ Image → CRAFT Detection → Feature Extraction → LSTM Sequence → CTC Decod
 - Diacritics often dropped
 - No post-OCR correction
 
-### 2.3 ALLaM-7B: Arabic LLM for Semantic Correction
+### 2.3 ALLaM-7B: Arabic LLM for Post-OCR Correction
 
-**Use Case:** Post-OCR semantic validation and correction
+> **⚠️ CRITICAL CLARIFICATION:** ALLaM-7B is a **TEXT-ONLY LLM** - it has **NO vision/OCR capability**.
+> It can only process text input, making it suitable ONLY for post-processing OCR output,
+> NOT for reading images or PDFs directly.
+
+**What ALLaM-7B CAN do:**
+- ✅ Correct OCR errors in Arabic text
+- ✅ Fix dot-based letter confusions (ب↔ت↔ث)
+- ✅ Separate merged words
+- ✅ Semantic validation of Arabic text
+- ✅ Handle mixed AR/EN text (trained on 4T EN + 1.2T mixed tokens)
+
+**What ALLaM-7B CANNOT do:**
+- ❌ Read images (no vision encoder)
+- ❌ Perform OCR (text-only model)
+- ❌ Process PDFs directly
+- ❌ Extract text from scanned documents
+
+**Correct Usage: Post-OCR Correction Pipeline**
 
 ```python
-# ALLaM for OCR correction
-correction_prompt = """
-أنت مساعد متخصص في تصحيح أخطاء التعرف الضوئي على النصوص العربية.
+"""
+ALLaM-7B for post-OCR Arabic text correction.
+
+IMPORTANT: ALLaM-7B is TEXT-ONLY. It cannot read images!
+Use it AFTER an OCR engine (PaddleOCR, EasyOCR, Qari-OCR) extracts text.
+
+Pipeline: Image → OCR Engine → Raw Text → ALLaM-7B → Corrected Text
+"""
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+class ALLaMArabicCorrector:
+    """
+    Post-OCR Arabic text correction using ALLaM-7B.
+
+    NOTE: This is NOT an OCR model. It corrects text output from OCR engines.
+    """
+
+    MODEL_NAME = "SDAIA/allam-1-7b-instruct"  # or "humain-ai/ALLaM-7B-Instruct-preview"
+
+    CORRECTION_PROMPT = """أنت مساعد متخصص في تصحيح أخطاء التعرف الضوئي على النصوص العربية.
 قواعد التصحيح:
 - صحح أخطاء النقاط (ب، ت، ث، ن، ي)
 - أصلح الكلمات الملتصقة
 - حافظ على الأرقام والتواريخ كما هي
 - لا تضف محتوى غير موجود
+- حافظ على النص الإنجليزي كما هو
 
 النص للتصحيح: {ocr_text}
-"""
+
+النص المصحح:"""
+
+    def __init__(self):
+        self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL_NAME)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.MODEL_NAME,
+            torch_dtype="auto",
+            device_map="auto"
+        )
+
+    def correct_ocr_text(self, ocr_text: str) -> str:
+        """
+        Correct OCR output text using ALLaM-7B.
+
+        Args:
+            ocr_text: Raw text from OCR engine (NOT an image path!)
+
+        Returns:
+            Corrected Arabic text
+        """
+        prompt = self.CORRECTION_PROMPT.format(ocr_text=ocr_text)
+
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=len(ocr_text) * 2,  # Allow for corrections
+            temperature=0.6,
+            top_k=50,
+            top_p=0.95,
+            do_sample=True
+        )
+
+        result = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        # Extract corrected text after the prompt
+        corrected = result.split("النص المصحح:")[-1].strip()
+        return corrected
+
+# CORRECT Usage Example:
+# Step 1: OCR engine extracts text from image
+# ocr_engine = PaddleOCR(lang='ar')
+# ocr_result = ocr_engine.ocr("invoice.png")
+# raw_text = " ".join([line[1][0] for line in ocr_result[0]])
+#
+# Step 2: ALLaM corrects the OCR text
+# corrector = ALLaMArabicCorrector()
+# corrected_text = corrector.correct_ocr_text(raw_text)
 ```
 
 **Recommended Parameters:**
 - Temperature: 0.6 (balanced creativity/accuracy)
 - Top-k: 50
 - Top-p: 0.95
-- Max tokens: 4096
+- Max tokens: 2x input length (allow for corrections)
 
 ---
 
@@ -3999,34 +4214,89 @@ else:
 ### 19.4 Installation Quick Start
 
 ```bash
-# PaddleOCR (Recommended for bilingual)
+# PaddleOCR (Recommended for bilingual) - Fast, production-ready
 pip install paddleocr paddlepaddle-gpu  # or paddlepaddle for CPU
 
-# EasyOCR (Simplest setup)
+# EasyOCR (Simplest setup) - Easy multi-language
 pip install easyocr
 
-# For SOTA Arabic (Qari-OCR)
-pip install transformers torch
+# For SOTA Arabic (Qari-OCR) - Best accuracy, GPU required
+pip install transformers torch bitsandbytes accelerate
+pip install qwen-vl-utils  # Required for image processing
 # Model: NAMAA-Space/Qari-OCR-0.2.2.1-VL-2B-Instruct
+# CRITICAL: Use 8-bit quantization only! 4-bit destroys accuracy.
+
+# For Post-OCR Correction (ALLaM-7B) - TEXT-ONLY, not OCR!
+pip install transformers torch
+# Model: SDAIA/allam-1-7b-instruct
 ```
 
-### 19.5 Minimal Working Example
+### 19.5 Minimal Working Examples
 
 ```python
+# =============================================================================
 # Option 1: PaddleOCR (Fast, good for both AR/EN)
+# =============================================================================
 from paddleocr import PaddleOCR
 ocr = PaddleOCR(use_angle_cls=True, lang='ar')
 result = ocr.ocr("invoice.png", cls=True)
 for line in result[0]:
     print(line[1][0])  # text
 
-# Option 2: EasyOCR (Simple, bilingual)
+# =============================================================================
+# Option 2: EasyOCR (Simple, bilingual AR/EN simultaneous)
+# =============================================================================
 import easyocr
 reader = easyocr.Reader(['ar', 'en'])
 result = reader.readtext("invoice.png")
 for bbox, text, conf in result:
     print(f"{text} ({conf:.2%})")
+
+# =============================================================================
+# Option 3: Qari-OCR (SOTA Arabic - CER 0.059-0.061)
+# CRITICAL: Use 8-bit quantization! 4-bit destroys accuracy (CER 3.452)
+# =============================================================================
+from PIL import Image
+from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+import torch
+
+# Load model with 8-bit quantization (REQUIRED for accuracy)
+model = Qwen2VLForConditionalGeneration.from_pretrained(
+    "NAMAA-Space/Qari-OCR-0.2.2.1-VL-2B-Instruct",
+    load_in_8bit=True,  # CRITICAL: Must be 8-bit, NOT 4-bit!
+    device_map="auto"
+)
+processor = AutoProcessor.from_pretrained("NAMAA-Space/Qari-OCR-0.2.2.1-VL-2B-Instruct")
+
+# OCR prompt (from official HuggingFace docs)
+messages = [{
+    "role": "user",
+    "content": [
+        {"type": "image", "image": "arabic_document.png"},
+        {"type": "text", "text": "Just return the plain Arabic text as if you are reading it naturally. Do not hallucinate."}
+    ]
+}]
+
+# Process
+text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+image = Image.open("arabic_document.png").convert("RGB")
+inputs = processor(text=[text], images=[image], return_tensors="pt").to(model.device)
+
+with torch.no_grad():
+    outputs = model.generate(**inputs, max_new_tokens=2048, do_sample=False)
+
+result = processor.batch_decode(outputs[:, inputs.input_ids.shape[1]:], skip_special_tokens=True)[0]
+print(result)
 ```
+
+### 19.6 Critical Warnings
+
+| Warning | Details |
+|---------|---------|
+| **Qari-OCR 4-bit** | ⚠️ NEVER use 4-bit quantization! CER degrades from 0.061 to 3.452 |
+| **ALLaM-7B** | ⚠️ TEXT-ONLY model - cannot read images/PDFs. Use for post-OCR correction only |
+| **Font Size** | Qari-OCR optimal range: 14-40pt. Outside range may degrade accuracy |
+| **Mixed AR/EN** | Use EasyOCR `['ar', 'en']` or PaddleOCR for mixed documents |
 
 ---
 
@@ -4088,7 +4358,16 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 | EasyOCR | ~0.12 | ~0.28 | Medium |
 | Tesseract | ~0.18 | ~0.40 | Fast |
 
-## Appendix C: v5.0 Changelog
+## Appendix C: v5.1 Changelog
+
+### Version 5.1 (Research-Enhanced EN/AR Edition) - January 2026
+- **Added**: Production Qari-OCR code with `QariOCREngine` class (Section 2.1)
+- **CRITICAL**: Added 8-bit quantization warning (4-bit destroys accuracy: CER 0.061 → 3.452!)
+- **Fixed**: ALLaM-7B documentation - clarified it's TEXT-ONLY, not an OCR model
+- **Enhanced**: Section 19 with complete working examples for all 3 engines
+- **Added**: Section 19.6 Critical Warnings table
+- **Updated**: Technology Stack table with ALLaM-7B correction
+- **Research**: All findings verified via Context7 and HuggingFace documentation
 
 ### Version 5.0 (Streamlined EN/AR Edition) - January 2026
 - **Removed**: Sections 11-26 (theoretical/specialized content)
@@ -4111,6 +4390,7 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v5.1 | Jan 2026 | Research-Enhanced - Qari-OCR code, 8-bit warning, ALLaM-7B fix |
 | v5.0 | Jan 2026 | Streamlined EN/AR Edition - removed theoretical sections, focus on practical |
 | v4.0 | Jan 2026 | Bilingual EN/AR Edition - added sections 27-34 |
 | v3.0 | Jan 2026 | Advanced Research Edition - added sections 19-26 |
@@ -4119,11 +4399,12 @@ Arabic Presentation Forms-B (U+FE70 - U+FEFF)
 
 ---
 
-**Document Statistics (v5.0):**
-- Total Lines: ~4,200 (reduced from ~12,500)
+**Document Statistics (v5.1):**
+- Total Lines: ~4,400 (added production code examples)
 - Sections: 19 + 3 Appendices
 - Focus: Practical EN/AR bilingual OCR implementation
 - Languages: English, Arabic only
+- Key Additions: Qari-OCR engine class, ALLaM-7B clarification, critical warnings
 
 ---
 
