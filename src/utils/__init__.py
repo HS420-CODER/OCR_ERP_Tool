@@ -9,6 +9,8 @@ Modules:
 - word_level_detector: Word-level language detection (Phase 4)
 - arabizi_transliterator: Arabizi to Arabic conversion (Phase 4)
 - bidirectional_text: RTL/LTR text handling (Phase 4)
+- ocr_cache: LRU caching for model lookups (Phase 7)
+- metrics_tracker: CER/WER quality tracking (Phase 7)
 """
 
 from .logging_config import (
@@ -80,6 +82,30 @@ from .bidirectional_text import (
     is_ltr,
 )
 
+# Phase 7: Performance & Quality
+from .ocr_cache import (
+    CacheStats,
+    OCRModelCache,
+    get_ocr_cache,
+    clear_ocr_cache,
+    get_cache_stats,
+    cached_confusions,
+    cached_ngram_score,
+    cached_morphology,
+    cached_english_validation,
+    cached_trigram_score,
+)
+
+from .metrics_tracker import (
+    QualityMetrics,
+    BenchmarkReport,
+    MetricsTracker,
+    get_metrics_tracker,
+    calculate_cer,
+    calculate_wer,
+    levenshtein_distance,
+)
+
 __all__ = [
     # Logging
     "JSONFormatter",
@@ -139,4 +165,23 @@ __all__ = [
     "detect_direction",
     "is_rtl",
     "is_ltr",
+    # Phase 7: OCR Cache
+    "CacheStats",
+    "OCRModelCache",
+    "get_ocr_cache",
+    "clear_ocr_cache",
+    "get_cache_stats",
+    "cached_confusions",
+    "cached_ngram_score",
+    "cached_morphology",
+    "cached_english_validation",
+    "cached_trigram_score",
+    # Phase 7: Metrics Tracker
+    "QualityMetrics",
+    "BenchmarkReport",
+    "MetricsTracker",
+    "get_metrics_tracker",
+    "calculate_cer",
+    "calculate_wer",
+    "levenshtein_distance",
 ]
